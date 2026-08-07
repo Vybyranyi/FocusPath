@@ -7,7 +7,7 @@ import type { HabitSummary } from '@shared/index';
 import { markHabitCompletion } from '@store/habitSlice';
 import { useAppDispatch } from '@store/hooks';
 import { motion, AnimatePresence } from 'framer-motion';
-import { startOfDay } from 'date-fns';
+import { dayKeyOf, todayKey } from '@/lib/dates';
 import { getHabitProgress } from '@/lib/habitProgress';
 import HabitDetailPopup from '@components/habit/HabitDetailPopup';
 
@@ -23,10 +23,13 @@ function HabitCard({ habit }: IHabitCardProps) {
   const [swipeDelta, setSwipeDelta] = useState(0);
   const wasSwipedRef = useRef(false);
 
-  const today     = startOfDay(new Date());
-  const habitDate = startOfDay(new Date(habit.dayInfo.date));
-  const isFuture  = habitDate > today;
-  const isPast    = habitDate < today;
+  // Compared as day keys. `dayInfo.date` is midnight UTC, and reading it with
+  // local getters put it on the previous day west of Greenwich — which showed
+  // every unmarked habit as a failure a day early.
+  const today    = todayKey();
+  const habitDay = dayKeyOf(habit.dayInfo.date);
+  const isFuture = habitDay > today;
+  const isPast   = habitDay < today;
 
   const getInitialStatus = (): Status => {
     if (habit.dayInfo.completed) return 'done';

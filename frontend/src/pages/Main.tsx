@@ -12,6 +12,7 @@ import { useSwipeable } from "react-swipeable";
 import HabitCard      from "@components/habit/HabitCard";
 import DatePicker     from "@components/pickers/DatePicker";
 import ProgressBanner from "@components/habit/ProgressBanner";
+import { toDayKey }   from "@/lib/dates";
 
 const slideVariants: Variants = {
   enter: (dir: number) => ({ x: dir > 0 ? 50 : -50, opacity: 0 }),
@@ -23,14 +24,6 @@ const springTransition: Transition = {
   x: { type: "spring", stiffness: 300, damping: 30 },
   opacity: { duration: 0.2 },
 };
-
-function isSameDay(d1: Date, d2: Date) {
-  return (
-    d1.getDate() === d2.getDate() &&
-    d1.getMonth() === d2.getMonth() &&
-    d1.getFullYear() === d2.getFullYear()
-  );
-}
 
 export default function Main() {
   const dispatch = useAppDispatch();
@@ -64,17 +57,21 @@ export default function Main() {
     trackMouse: true,
   });
 
+  // Derived rather than stored: the effect below refetches whenever it changes,
+  // so a click that lands on the day already shown does not fetch it again.
+  const selectedKey = toDayKey(selectedDate);
+
   const handleDateClick = useCallback((date: Date) => {
-    setDirection((current) => current);
-    setSelectedDate((previous) => {
-      setDirection(date > previous ? 1 : -1);
-      return date;
-    });
-  }, []);
+    // Both setters called plainly. Deciding the direction inside the
+    // setSelectedDate updater made it a side effect, which React is free to
+    // run twice — and does, under StrictMode.
+    setDirection(date > selectedDate ? 1 : -1);
+    setSelectedDate(date);
+  }, [selectedDate]);
 
   useEffect(() => {
-    dispatch(getHabitsForDate(selectedDate.toISOString()));
-  }, [dispatch, selectedDate]);
+    dispatch(getHabitsForDate(selectedKey));
+  }, [dispatch, selectedKey]);
 
   const renderContent = () => {
     if (loading) {
@@ -109,7 +106,7 @@ export default function Main() {
 
     return (
       <motion.div
-        key={selectedDate.toISOString()}
+        key={selectedKey}
         custom={direction}
         variants={slideVariants}
         initial="enter"
@@ -147,7 +144,7 @@ export default function Main() {
                 <DatePicker
                   key={date.toISOString()}
                   date={date}
-                  active={isSameDay(date, selectedDate)}
+                  active={toDayKey(date) === selectedKey}
                   onClick={() => handleDateClick(date)}
                 />
               ))}

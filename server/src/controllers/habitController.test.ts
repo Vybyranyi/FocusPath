@@ -13,6 +13,9 @@ const daysFromToday = (days: number) => {
     return date.toISOString();
 };
 
+/** A day as it travels on the wire: `YYYY-MM-DD`, never a full instant. */
+const dayKey = (days: number) => daysFromToday(days).slice(0, 10);
+
 const validHabit = () => ({
     title: 'Read daily',
     startDate: daysFromToday(0),
@@ -173,6 +176,37 @@ describe('Habit Controller', () => {
 
             expect(response.body.error.details).toHaveProperty('date');
         });
+
+        /**
+         * The contract the client has to hold up: a bare day key names one day,
+         * and the entry that comes back is that same day at midnight UTC. Sent
+         * as a full instant instead, a local midnight would arrive as the day
+         * before — which is how a habit created today came back missing.
+         */
+        it('answers a bare day key with that exact day', async () => {
+            await createHabit(client, { duration: 3 });
+
+            const response = await client.agent
+                .get(`/habits/daily?date=${dayKey(0)}`)
+                .expect(200);
+
+            expect(response.body.data.habits[0].dayInfo.date).toBe(`${dayKey(0)}T00:00:00.000Z`);
+            expect(response.body.data.date).toBe(`${dayKey(0)}T00:00:00.000Z`);
+        });
+
+        it('gives neighbouring days their own entries', async () => {
+            await createHabit(client, { duration: 3 });
+
+            const today = await client.agent.get(`/habits/daily?date=${dayKey(0)}`).expect(200);
+            const tomorrow = await client.agent.get(`/habits/daily?date=${dayKey(1)}`).expect(200);
+
+            expect(today.body.data.habits[0].dayInfo.date).not.toBe(
+                tomorrow.body.data.habits[0].dayInfo.date,
+            );
+            expect(today.body.data.habits[0].dayInfo._id).not.toBe(
+                tomorrow.body.data.habits[0].dayInfo._id,
+            );
+        });
     });
 
     describe('PATCH /habits/:id/complete', () => {
@@ -187,6 +221,21 @@ describe('Habit Controller', () => {
                 (day: { completed: boolean }) => day.completed,
             );
             expect(completed).toHaveLength(1);
+        });
+
+        it('accepts a bare day key and marks that day alone', async () => {
+            const habit = await createHabit(client, { duration: 3 });
+
+            const response = await write(client, 'patch', `/habits/${habit._id}/complete`)
+                .send({ date: dayKey(1), completed: true })
+                .expect(200);
+
+            const days = response.body.data.habit.dailyCompletions;
+            expect(days.map((day: { completed: boolean }) => day.completed)).toEqual([
+                false,
+                true,
+                false,
+            ]);
         });
 
         it('refuses a day outside the schedule', async () => {

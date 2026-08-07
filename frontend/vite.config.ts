@@ -12,6 +12,11 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: './src/setupTests.ts',
+    // Pinned east of UTC on purpose. Under UTC a whole class of date bugs is
+    // invisible by definition: local midnight and UTC midnight are the same
+    // instant, so converting one to the other silently does nothing. At UTC+3
+    // it moves the day, which is exactly what shipped to users.
+    env: { TZ: 'Europe/Kyiv' },
     coverage: {
       provider: "v8",
       reporter: ["text"],

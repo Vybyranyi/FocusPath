@@ -2,6 +2,7 @@ import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import type { Habit, HabitSummary } from "@shared/index";
 import type { CreateHabitFormValues } from "@/types/forms";
 import { apiRequest, errorMessage } from "@api/client";
+import { dayKeyOf, toDayKey, todayKey } from "@/lib/dates";
 
 export interface IHabitSlice {
   /** Every habit, as `GET /habits` returns them. */
@@ -29,9 +30,10 @@ const initialState: IHabitSlice = {
 /** The form's shape, translated into what the API expects. */
 const toHabitBody = (values: CreateHabitFormValues, allowAutoDuration = false) => ({
   title: values.habitName.trim(),
-  startDate: values.startDate
-    ? new Date(values.startDate).toISOString()
-    : new Date().toISOString(),
+  // The picker hands back local midnight. As a full instant that arrives as the
+  // previous day east of Greenwich, which either shifted the whole schedule or
+  // got the habit refused for starting "in the past".
+  startDate: values.startDate ? toDayKey(values.startDate) : todayKey(),
   duration: allowAutoDuration && !values.duration ? null : Number(values.duration),
   type: values.habitType,
   color: values.color,
@@ -66,11 +68,11 @@ export const createAIHabit = createAsyncThunk(
   },
 );
 
+/** Takes a day key (`YYYY-MM-DD`); callers own the conversion from a Date. */
 export const getHabitsForDate = createAsyncThunk(
   "habit/getHabitsForDate",
-  async (date: string, { rejectWithValue }) => {
+  async (day: string, { rejectWithValue }) => {
     try {
-      const day = new Date(date).toISOString().split("T")[0];
       return await apiRequest<{ date: string; habits: HabitSummary[] }>(
         `/habits/daily?date=${day}`,
       );
@@ -94,15 +96,17 @@ export const getAllHabits = createAsyncThunk(
 export const markHabitCompletion = createAsyncThunk(
   "habit/markHabitCompletion",
   async (
-    { habitId, date, completed }: { habitId: string; date: Date | string; completed: boolean },
+    { habitId, date, completed }: { habitId: string; date: string; completed: boolean },
     { rejectWithValue },
   ) => {
     try {
       const { habit } = await apiRequest<{ habit: Habit }>(
         `/habits/${habitId}/complete`,
         {
+          // `date` is the day the server itself named, so it only needs
+          // narrowing to a key — never a round trip through a local Date.
           method: "PATCH",
-          body: { date: new Date(date).toISOString(), completed },
+          body: { date: dayKeyOf(date), completed },
         },
       );
       return { habitId, completed, updatedHabit: habit };

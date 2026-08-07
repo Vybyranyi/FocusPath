@@ -7,6 +7,7 @@ import tick_success from '@assets/images/icons/tick_success.svg';
 import { useAppDispatch } from '@store/hooks';
 import { toggleHabitStep, deleteHabit } from '@store/habitSlice';
 import { getHabitProgress } from '@/lib/habitProgress';
+import { dayKeyOf, fromDayKey } from '@/lib/dates';
 import type { HabitSummary } from '@shared/index';
 import { format, addDays } from 'date-fns';
 
@@ -58,8 +59,11 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
   const calculateDeadline = () => {
     if (!habit.startDate || !habit.duration) return null;
     try {
-        const endDate = addDays(new Date(habit.startDate), habit.duration - 1);
-        return format(endDate, 'MMM do, yyyy');
+        // Through the day key, so the deadline is counted from the day the
+        // schedule actually names rather than from whatever local day midnight
+        // UTC happens to fall on here.
+        const start = fromDayKey(dayKeyOf(habit.startDate));
+        return format(addDays(start, habit.duration - 1), 'MMM do, yyyy');
     } catch {
         return null;
     }
