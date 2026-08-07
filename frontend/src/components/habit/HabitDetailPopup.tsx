@@ -8,6 +8,7 @@ import { useAppDispatch } from '@store/hooks';
 import { toggleHabitStep, deleteHabit } from '@store/habitSlice';
 import { getHabitProgress } from '@/lib/habitProgress';
 import { dayKeyOf, fromDayKey } from '@/lib/dates';
+import { isDone } from '@/lib/habitStatus';
 import type { HabitSummary } from '@shared/index';
 import { format, addDays } from 'date-fns';
 
@@ -227,11 +228,11 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                {/* Today's status */}
                <div
                    className={`rounded-2xl p-5 flex flex-col justify-center items-center relative overflow-hidden transition-colors border ${
-                   habit.dayInfo.completed ? 'bg-success-20 text-success border-success-20' : 'bg-base-bg border-transparent hover:border-primary-black-10'
+                   isDone(habit.dayInfo) ? 'bg-success-20 text-success border-success-20' : 'bg-base-bg border-transparent hover:border-primary-black-10'
                    }`}
                >
-                   <p className={`text-[11px] font-bold tracking-wider uppercase mb-2 ${habit.dayInfo.completed ? 'text-success/70' : 'text-primary-black-40'}`}>Today</p>
-                   {habit.dayInfo.completed ? (
+                   <p className={`text-[11px] font-bold tracking-wider uppercase mb-2 ${isDone(habit.dayInfo) ? 'text-success/70' : 'text-primary-black-40'}`}>Today</p>
+                   {isDone(habit.dayInfo) ? (
                        <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring" }}>
                             <img src={tick_success} className="w-12 h-12 object-contain drop-shadow-sm" alt="Completed" />
                        </motion.div>

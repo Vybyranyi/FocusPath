@@ -1,6 +1,7 @@
 import { memo } from "react";
 import CircleLoader from "@components/habit/CircleLoader";
 import { getHabitProgress } from "@/lib/habitProgress";
+import { isDone } from "@/lib/habitStatus";
 import { Emoji } from "react-apple-emojis";
 import type { Habit } from "@shared/index";
 
@@ -9,7 +10,7 @@ interface HabitRowProps {
 }
 
 function HabitRow({ habit }: HabitRowProps) {
-  const completed = habit.dailyCompletions.filter((d) => d.completed).length;
+  const completed = habit.dailyCompletions.filter(isDone).length;
   const pct = getHabitProgress(completed, habit.dailyCompletions.length);
 
   return (

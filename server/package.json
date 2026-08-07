@@ -7,6 +7,7 @@
     "build": "tsc && tsc-alias",
     "start": "node dist/server.js",
     "seed:admin": "ts-node -r tsconfig-paths/register src/scripts/seedAdmin.ts",
+    "migrate:day-status": "ts-node -r tsconfig-paths/register src/scripts/migrateDayStatus.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "jest",

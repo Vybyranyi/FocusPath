@@ -1,6 +1,7 @@
 import { memo } from "react";
 import StatCard from "./StatCard";
 import { getHabitProgress } from "@/lib/habitProgress";
+import { isDone } from "@/lib/habitStatus";
 import type { Habit } from "@shared/index";
 
 interface StatsSummaryProps {
@@ -14,7 +15,7 @@ function StatsSummary({ habits }: StatsSummaryProps) {
 
   const totalDays = habits.reduce((sum, h) => sum + h.dailyCompletions.length, 0);
   const doneDays = habits.reduce(
-    (sum, h) => sum + h.dailyCompletions.filter((d) => d.completed).length,
+    (sum, h) => sum + h.dailyCompletions.filter(isDone).length,
     0,
   );
   const overallRate = getHabitProgress(doneDays, totalDays);

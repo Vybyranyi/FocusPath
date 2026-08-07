@@ -21,6 +21,7 @@ Run from the repo root unless noted.
 | Watch tests (frontend) | `npm --prefix frontend run test:watch` |
 | Single server test file | `npm --prefix server exec jest -- src/services/habitSchedule.test.ts` |
 | Seed an admin account | `npm --prefix server run seed:admin` |
+| Migrate day flags to statuses | `npm --prefix server run migrate:day-status` |
 
 `npm test` in the frontend is `vitest run` — non-watching, safe in CI. Use
 `test:watch` for the interactive runner.
@@ -79,6 +80,27 @@ is also what actually closes NoSQL injection: an operator object like
 `{"$ne": null}` fails the type check long before it reaches a query.
 `sanitizeFilter` in `server/src/config/mongoose.ts` is the second line, not the
 first.
+
+**A day travels as `YYYY-MM-DD`, and server dates are read in UTC.** The
+calendar day is the user's *local* day — the one printed on the cell they
+tapped. `frontend/src/lib/dates.ts` mirrors `server/src/utils/dates.ts` and is
+the only place that converts. Never send a full instant for a day: local
+midnight through `toISOString()` is the previous UTC day east of Greenwich,
+which is how the day view spent a release fetching and marking yesterday.
+Never read a timestamp from a response with local getters either — it is
+midnight UTC, and local getters move it a day west of Greenwich. Day keys are
+fixed-width, so comparing days is string comparison. The frontend suite is
+pinned to `Europe/Kyiv` in `vite.config.ts` because under UTC this entire class
+of bug is invisible by construction.
+
+**A scheduled day has a status, not a flag.** `pending | done | failed` in
+`shared/src/habit.d.ts`. `failed` is the user saying "I did not do this", which
+a boolean could not express — it and "the day has not happened yet" were both
+`false`. There is deliberately no stored `missed`: a `pending` day that is over
+is missed, derived by `dayState` in `frontend/src/lib/habitStatus.ts`. Storing
+it would need a job flipping rows at midnight in every user's own timezone, and
+would be wrong until it ran. An explicit `failed` breaks the streak; today's
+grace in `calculateStreak` applies only while the day is undecided.
 
 **`shared/` holds declaration files only.** Sources are `.d.ts` on purpose:
 declaration files cannot contain runtime code and are never emitted, so neither

@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { z } from 'zod';
+import { DAY_STATUSES } from '@models/Habit';
 
 const objectId = (label: string) =>
     z.string().refine(value => mongoose.Types.ObjectId.isValid(value), `Invalid ${label}`);
@@ -29,13 +30,22 @@ const steps = z.array(
     }),
 );
 
-/** Compared at day granularity in UTC, matching how the schedule is generated. */
+/**
+ * Compared at day granularity in UTC, matching how the schedule is generated,
+ * with one day of slack.
+ *
+ * The slack is not sloppiness: the client sends the calendar day it is on, and
+ * that day can trail the server's UTC day by one. A user in UTC−5 at 20:00 is
+ * still on the 7th while the server has already turned over to the 8th, and a
+ * strict comparison told them their own today was in the past.
+ */
 const isNotInPast = (date: Date): boolean => {
     const start = new Date(date);
     start.setUTCHours(0, 0, 0, 0);
-    const today = new Date();
-    today.setUTCHours(0, 0, 0, 0);
-    return start.getTime() >= today.getTime();
+    const earliest = new Date();
+    earliest.setUTCHours(0, 0, 0, 0);
+    earliest.setUTCDate(earliest.getUTCDate() - 1);
+    return start.getTime() >= earliest.getTime();
 };
 
 const startDate = z.coerce
@@ -88,7 +98,10 @@ export type UpdateHabitDto = z.infer<typeof updateHabitSchema>;
 
 export const markCompletionSchema = z.object({
     date: z.coerce.date('Must be a valid date').optional(),
-    completed: z.boolean('Completed status is required'),
+    status: z.enum(
+        DAY_STATUSES,
+        'Status must be one of "pending", "done" or "failed"',
+    ),
 });
 export type MarkCompletionDto = z.infer<typeof markCompletionSchema>;
 

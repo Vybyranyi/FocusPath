@@ -63,7 +63,7 @@ export const makeHabitSummary = (
     // A string, as it arrives over JSON — the old fixture used a Date, which
     // no response has ever actually contained.
     date: "2025-01-06T00:00:00.000Z",
-    completed: false,
+    status: "pending",
   },
   ...overrides,
 });

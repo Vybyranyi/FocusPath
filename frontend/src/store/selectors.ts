@@ -1,6 +1,7 @@
 import { createSelector } from "@reduxjs/toolkit";
 import type { RootState } from "@store/store";
 import { getHabitProgress } from "@/lib/habitProgress";
+import { isDone } from "@/lib/habitStatus";
 
 export const selectAllHabits = (state: RootState) => state.habit.habits;
 export const selectHabitsForDate = (state: RootState) => state.habit.habitsForDate;
@@ -29,7 +30,7 @@ export const selectDailyProgress = createSelector(
     [selectHabitsForDate],
     (habits): DailyProgress => {
         const total = habits.length;
-        const completed = habits.filter(habit => habit.dayInfo.completed).length;
+        const completed = habits.filter(habit => isDone(habit.dayInfo)).length;
 
         return { total, completed, percentage: getHabitProgress(completed, total) };
     },

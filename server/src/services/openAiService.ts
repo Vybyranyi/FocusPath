@@ -22,7 +22,6 @@ const getClient = (): OpenAI => {
 interface DailyTask {
     dayTitle: string;
     date?: Date;
-    completed: boolean;
 }
 
 interface AIHabitResponse {
@@ -48,8 +47,8 @@ Return a JSON object:
 {
   "duration": ${duration},
   "dailyTasks": [
-    {"dayTitle": "Specific task for day 1", "completed": false},
-    {"dayTitle": "Specific task for day 2", "completed": false},
+    {"dayTitle": "Specific task for day 1"},
+    {"dayTitle": "Specific task for day 2"},
     ... continue until you have ${duration} tasks total
   ]
 }
@@ -68,8 +67,8 @@ Return a JSON object:
 {
   "duration": <your_chosen_number>,
   "dailyTasks": [
-    {"dayTitle": "Specific task for day 1", "completed": false},
-    {"dayTitle": "Specific task for day 2", "completed": false},
+    {"dayTitle": "Specific task for day 1"},
+    {"dayTitle": "Specific task for day 2"},
     ... continue until you have <your_chosen_number> tasks total
   ]
 }
@@ -119,9 +118,7 @@ Double-check your response before returning it.`
         }
 
         // Validate that each task has required fields
-        const invalidTasks = response.dailyTasks.filter(
-            task => !task.dayTitle || typeof task.completed !== 'boolean'
-        );
+        const invalidTasks = response.dailyTasks.filter(task => !task.dayTitle);
 
         if (invalidTasks.length > 0) {
             throw new Error('Some tasks are missing required fields');
@@ -141,7 +138,6 @@ Double-check your response before returning it.`
                 for (let i = 0; i < remaining; i++) {
                     response.dailyTasks.push({
                         dayTitle: `Continue working on: ${response.dailyTasks[response.dailyTasks.length - 1]?.dayTitle || 'your habit'}`,
-                        completed: false
                     });
                 }
             } else {

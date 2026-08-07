@@ -1,5 +1,7 @@
 import mongoose, { Document, Schema } from "mongoose";
-import type { Habit } from '@shared/index';
+import type { DayStatus, Habit } from '@shared/index';
+
+export const DAY_STATUSES: readonly DayStatus[] = ['pending', 'done', 'failed'];
 
 /**
  * The stored habit. Scalar fields and the `type` union come from the shared
@@ -15,7 +17,7 @@ export interface IHabit
     dailyCompletions: Array<{
         dayTitle: string;
         date: Date;
-        completed: boolean;
+        status: DayStatus;
     }>;
     steps?: Array<{
         _id?: mongoose.Types.ObjectId;
@@ -39,7 +41,7 @@ const HabitSchema: Schema = new Schema({
     dailyCompletions: [{
         dayTitle: { type: String, required: true },
         date: { type: Date, required: true },
-        completed: { type: Boolean, required: true }
+        status: { type: String, enum: DAY_STATUSES, default: 'pending', required: true }
     }],
     description: { type: String, default: '' },
     category: { type: String, default: '' },

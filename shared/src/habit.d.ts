@@ -6,13 +6,27 @@ export interface HabitStep {
     completed: boolean;
 }
 
+/**
+ * What a scheduled day is currently worth.
+ *
+ * `failed` is the user saying "I did not do this", which a boolean could not
+ * express: it and "the day has not happened yet" were both `false`, so an
+ * explicit red mark could not survive a reload.
+ *
+ * There is deliberately no `missed` here. A day that is still `pending` once it
+ * is over is missed, and that follows from the date — storing it would need a
+ * job flipping rows at midnight in every user's own timezone, and would be
+ * wrong between the flip and the read. See `dayState` on the client.
+ */
+export type DayStatus = "pending" | "done" | "failed";
+
 /** One scheduled day of a habit. The schedule is generated up front, one entry per day of `duration`. */
 export interface DailyCompletion {
     _id: string;
     dayTitle: string;
     /** ISO 8601 date string, normalised to midnight UTC. */
     date: string;
-    completed: boolean;
+    status: DayStatus;
 }
 
 /** A habit in full, as returned by `GET /habits` and `GET /habits/:id`. */

@@ -1,52 +1,55 @@
-import { addUtcDays, daysBetween, startOfUtcDay } from '@utils/dates';
+import type { DayStatus } from '@shared/index';
+import { addUtcDays, startOfUtcDay } from '@utils/dates';
 
 export interface ScheduledDay {
     dayTitle: string;
     date: Date;
-    completed: boolean;
+    status: DayStatus;
 }
 
 /**
- * The consecutive run of completed days ending at the most recent one.
+ * The consecutive run of `done` days ending at the most recent one.
  *
- * "Current" allows the run to end yesterday as well as today, because a day is
- * not a failure until it is over — a user mid-run who has not ticked today yet
- * still has their streak. A run that ended earlier than yesterday is broken and
- * counts zero. Days beyond today are ignored: marking a future day of the plan
- * cannot extend a streak that has not reached it.
+ * Walks backwards from today rather than collecting the completed days and
+ * measuring the gaps, because the interesting cases are the ones with nothing
+ * in them: a day left `pending` after it is over, and a day the user explicitly
+ * marked `failed`. Both break the run, and a set of completed dates cannot see
+ * either.
+ *
+ * Today is the one exception. A day is not a failure until it is over, so a run
+ * that ends yesterday is still current while today sits `pending` — but only
+ * while it sits `pending`. Once the user says they failed today, they have said
+ * the run is over.
  *
  * Pure and time-injectable so the behaviour can be tested without waiting a day.
  */
 export const calculateStreak = (
-    completions: ReadonlyArray<{ date: Date | string; completed: boolean }>,
+    completions: ReadonlyArray<{ date: Date | string; status: DayStatus }>,
     now: Date = new Date(),
 ): number => {
     const today = startOfUtcDay(now).getTime();
 
-    const completedDays = [
-        ...new Set(
-            completions
-                .filter(entry => entry.completed)
-                .map(entry => startOfUtcDay(entry.date).getTime())
-                .filter(day => day <= today),
-        ),
-    ].sort((a, b) => a - b);
-
-    if (completedDays.length === 0) {
-        return 0;
-    }
-
-    const mostRecent = completedDays[completedDays.length - 1];
-    if (daysBetween(mostRecent, today) > 1) {
-        return 0;
-    }
-
-    let streak = 1;
-    for (let index = completedDays.length - 1; index > 0; index--) {
-        if (daysBetween(completedDays[index - 1], completedDays[index]) !== 1) {
-            break;
+    // Last write wins per day, which is also what a duplicated date should mean.
+    const byDay = new Map<number, DayStatus>();
+    for (const entry of completions) {
+        const day = startOfUtcDay(entry.date).getTime();
+        if (day <= today) {
+            byDay.set(day, entry.status);
         }
+    }
+
+    if (byDay.get(today) === 'failed') {
+        return 0;
+    }
+
+    // Today only joins the run if it is actually done; otherwise counting
+    // starts at yesterday and today's grace applies.
+    let cursor = byDay.get(today) === 'done' ? today : addUtcDays(today, -1).getTime();
+    let streak = 0;
+
+    while (byDay.get(cursor) === 'done') {
         streak++;
+        cursor = addUtcDays(cursor, -1).getTime();
     }
 
     return streak;
@@ -71,7 +74,7 @@ export const buildSchedule = (
         return {
             dayTitle: previous?.dayTitle ?? defaultTitle,
             date: addUtcDays(startDate, offset),
-            completed: previous?.completed ?? false,
+            status: previous?.status ?? 'pending',
         };
     });
 
@@ -79,8 +82,8 @@ export const buildSchedule = (
 export const endOfSchedule = (startDate: Date, duration: number): Date =>
     addUtcDays(startDate, duration - 1);
 
-/** Whether every day of the plan has been completed. */
+/** Whether every day of the plan has been done. */
 export const isPlanComplete = (
-    completions: ReadonlyArray<{ completed: boolean }>,
+    completions: ReadonlyArray<{ status: DayStatus }>,
     duration: number,
-): boolean => completions.filter(entry => entry.completed).length >= duration;
+): boolean => completions.filter(entry => entry.status === 'done').length >= duration;

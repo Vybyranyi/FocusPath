@@ -1,5 +1,5 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
-import type { Habit, HabitSummary } from "@shared/index";
+import type { DayStatus, Habit, HabitSummary } from "@shared/index";
 import type { CreateHabitFormValues } from "@/types/forms";
 import { apiRequest, errorMessage } from "@api/client";
 import { dayKeyOf, toDayKey, todayKey } from "@/lib/dates";
@@ -96,7 +96,7 @@ export const getAllHabits = createAsyncThunk(
 export const markHabitCompletion = createAsyncThunk(
   "habit/markHabitCompletion",
   async (
-    { habitId, date, completed }: { habitId: string; date: string; completed: boolean },
+    { habitId, date, status }: { habitId: string; date: string; status: DayStatus },
     { rejectWithValue },
   ) => {
     try {
@@ -106,10 +106,10 @@ export const markHabitCompletion = createAsyncThunk(
           // `date` is the day the server itself named, so it only needs
           // narrowing to a key — never a round trip through a local Date.
           method: "PATCH",
-          body: { date: dayKeyOf(date), completed },
+          body: { date: dayKeyOf(date), status },
         },
       );
-      return { habitId, completed, updatedHabit: habit };
+      return { habitId, date, status, updatedHabit: habit };
     } catch (error) {
       return rejectWithValue(errorMessage(error));
     }
@@ -210,16 +210,29 @@ const habitSlice = createSlice({
       });
 
     builder.addCase(markHabitCompletion.fulfilled, (state, action) => {
-      const { habitId, completed, updatedHabit } = action.payload;
+      const { habitId, date, status, updatedHabit } = action.payload;
+
       const habit = state.habitsForDate.find((h) => h._id === habitId);
       if (habit) {
-        const wasCompleted = habit.dayInfo.completed;
-        habit.dayInfo.completed = completed;
+        const wasDone = habit.dayInfo.status === "done";
+        const isDone = status === "done";
+        habit.dayInfo.status = status;
         habit.currentStreak = updatedHabit.currentStreak;
         habit.isCompleted = updatedHabit.isCompleted;
         // Adjusted locally rather than refetched, since the change is known.
-        if (completed && !wasCompleted) habit.completedCount += 1;
-        if (!completed && wasCompleted) habit.completedCount = Math.max(0, habit.completedCount - 1);
+        if (isDone && !wasDone) habit.completedCount += 1;
+        if (!isDone && wasDone) habit.completedCount = Math.max(0, habit.completedCount - 1);
+      }
+
+      // The stats page reads `habits`, not `habitsForDate`. It used to survive
+      // on refetching everything when it mounts, which made it right by luck
+      // rather than because the store was consistent.
+      const full = state.habits.find((h) => h._id === habitId);
+      if (full) {
+        const day = full.dailyCompletions.find((entry) => dayKeyOf(entry.date) === dayKeyOf(date));
+        if (day) day.status = status;
+        full.currentStreak = updatedHabit.currentStreak;
+        full.isCompleted = updatedHabit.isCompleted;
       }
     });
 

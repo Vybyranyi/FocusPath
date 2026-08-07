@@ -30,6 +30,7 @@ npm run dev        # http://localhost:3000
 | `npm test` | Jest |
 | `npm run test:coverage` | Jest із покриттям |
 | `npm run seed:admin` | Створює акаунт із `ADMIN_EMAIL` / `ADMIN_PASSWORD` |
+| `npm run migrate:day-status` | Переносить `dailyCompletions[].completed` у `status`. Разова, ідемпотентна; виконати перед розгортанням релізу з enum |
 
 `tsc-alias` у збірці обов'язковий: сам `tsc` лишає аліаси шляхів у
 згенерованому JS, і без цього кроку зібраний сервер не стартує.

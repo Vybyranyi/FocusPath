@@ -43,7 +43,7 @@ const day = (id: string, completed: boolean) =>
       _id: `${id}-day`,
       dayTitle: "task",
       date: "2025-01-06T00:00:00.000Z",
-      completed,
+      status: completed ? "done" : "pending",
     },
   });
 

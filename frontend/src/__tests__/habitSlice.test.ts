@@ -82,7 +82,7 @@ describe("habitSlice", () => {
         markHabitCompletion({
           habitId: "habit-1",
           date: "2026-08-07T00:00:00.000Z",
-          completed: true,
+          status: "done",
         }),
       );
 
@@ -104,12 +104,12 @@ describe("habitSlice", () => {
         markHabitCompletion({
           habitId: "habit-1",
           date: "2026-08-07T00:00:00.000Z",
-          completed: true,
+          status: "done",
         }),
       );
 
       const [habit] = store.getState().habit.habitsForDate;
-      expect(habit.dayInfo.completed).toBe(true);
+      expect(habit.dayInfo.status).toBe("done");
       expect(habit.completedCount).toBe(3);
       expect(habit.currentStreak).toBe(3);
     });
@@ -128,7 +128,7 @@ describe("habitSlice", () => {
                 _id: "day-1",
                 dayTitle: "Read 10 pages",
                 date: "2026-08-07T00:00:00.000Z",
-                completed: true,
+                status: "done",
               },
             }),
           ],
@@ -139,7 +139,7 @@ describe("habitSlice", () => {
         markHabitCompletion({
           habitId: "habit-1",
           date: "2026-08-07T00:00:00.000Z",
-          completed: true,
+          status: "done",
         }),
       );
 

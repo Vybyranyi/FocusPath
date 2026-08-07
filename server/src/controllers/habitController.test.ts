@@ -50,7 +50,7 @@ describe('Habit Controller', () => {
 
             expect(habit.dailyCompletions).toHaveLength(7);
             expect(
-                habit.dailyCompletions.every((day: { completed: boolean }) => !day.completed),
+                habit.dailyCompletions.every((day: { status: string }) => day.status === 'pending'),
             ).toBe(true);
             expect(habit.currentStreak).toBe(0);
         });
@@ -64,12 +64,24 @@ describe('Habit Controller', () => {
 
         it('refuses a start date in the past', async () => {
             const response = await write(client, 'post', '/habits/')
-                .send({ ...validHabit(), startDate: daysFromToday(-1) })
+                .send({ ...validHabit(), startDate: daysFromToday(-2) })
                 .expect(400);
 
             expect(response.body.error.details.startDate).toEqual([
                 'Start date cannot be in the past',
             ]);
+        });
+
+        /**
+         * One day of slack, on purpose. The client sends the calendar day it is
+         * on, and west of Greenwich that trails the server's UTC day: a user in
+         * UTC−5 at 20:00 is still on the 7th while the server has turned over
+         * to the 8th. Without the slack their own today was "in the past".
+         */
+        it('accepts a start date one day behind the server', async () => {
+            await write(client, 'post', '/habits/')
+                .send({ ...validHabit(), startDate: daysFromToday(-1) })
+                .expect(201);
         });
 
         it.each([0, 366, 1.5])('refuses a duration of %s', async duration => {
@@ -155,7 +167,7 @@ describe('Habit Controller', () => {
                 .expect(200);
 
             expect(response.body.data.habits).toHaveLength(1);
-            expect(response.body.data.habits[0].dayInfo).toMatchObject({ completed: false });
+            expect(response.body.data.habits[0].dayInfo).toMatchObject({ status: 'pending' });
             expect(response.body.data.habits[0].completedCount).toBe(0);
         });
 
@@ -214,27 +226,27 @@ describe('Habit Controller', () => {
             const habit = await createHabit(client, { duration: 3 });
 
             const response = await write(client, 'patch', `/habits/${habit._id}/complete`)
-                .send({ date: daysFromToday(0), completed: true })
+                .send({ date: daysFromToday(0), status: 'done' })
                 .expect(200);
 
-            const completed = response.body.data.habit.dailyCompletions.filter(
-                (day: { completed: boolean }) => day.completed,
+            const done = response.body.data.habit.dailyCompletions.filter(
+                (day: { status: string }) => day.status === 'done',
             );
-            expect(completed).toHaveLength(1);
+            expect(done).toHaveLength(1);
         });
 
         it('accepts a bare day key and marks that day alone', async () => {
             const habit = await createHabit(client, { duration: 3 });
 
             const response = await write(client, 'patch', `/habits/${habit._id}/complete`)
-                .send({ date: dayKey(1), completed: true })
+                .send({ date: dayKey(1), status: 'done' })
                 .expect(200);
 
             const days = response.body.data.habit.dailyCompletions;
-            expect(days.map((day: { completed: boolean }) => day.completed)).toEqual([
-                false,
-                true,
-                false,
+            expect(days.map((day: { status: string }) => day.status)).toEqual([
+                'pending',
+                'done',
+                'pending',
             ]);
         });
 
@@ -242,20 +254,77 @@ describe('Habit Controller', () => {
             const habit = await createHabit(client, { duration: 3 });
 
             const response = await write(client, 'patch', `/habits/${habit._id}/complete`)
-                .send({ date: daysFromToday(30), completed: true })
+                .send({ date: daysFromToday(30), status: 'done' })
                 .expect(400);
 
             expect(response.body.error.message).toBe('Date is outside habit duration');
         });
 
-        it('requires the completed flag', async () => {
+        /**
+         * The state a boolean could not hold. "I did not do this" and "this day
+         * has not happened yet" were both `false`, so the verdict could only
+         * live in the component that made it and died on the next refetch.
+         */
+        it('remembers a day the user marked failed', async () => {
+            const habit = await createHabit(client, { duration: 3 });
+
+            await write(client, 'patch', `/habits/${habit._id}/complete`)
+                .send({ date: dayKey(0), status: 'failed' })
+                .expect(200);
+
+            const response = await client.agent
+                .get(`/habits/daily?date=${dayKey(0)}`)
+                .expect(200);
+
+            expect(response.body.data.habits[0].dayInfo.status).toBe('failed');
+        });
+
+        it('does not count a failed day as progress', async () => {
+            const habit = await createHabit(client, { duration: 3 });
+
+            await write(client, 'patch', `/habits/${habit._id}/complete`)
+                .send({ date: dayKey(0), status: 'failed' })
+                .expect(200);
+
+            const response = await client.agent
+                .get(`/habits/daily?date=${dayKey(0)}`)
+                .expect(200);
+
+            expect(response.body.data.habits[0].completedCount).toBe(0);
+        });
+
+        it('lets a day be taken back to pending', async () => {
+            const habit = await createHabit(client, { duration: 3 });
+
+            await write(client, 'patch', `/habits/${habit._id}/complete`)
+                .send({ date: dayKey(0), status: 'done' })
+                .expect(200);
+
+            const response = await write(client, 'patch', `/habits/${habit._id}/complete`)
+                .send({ date: dayKey(0), status: 'pending' })
+                .expect(200);
+
+            expect(response.body.data.habit.dailyCompletions[0].status).toBe('pending');
+        });
+
+        it('refuses a status outside the enum', async () => {
+            const habit = await createHabit(client);
+
+            const response = await write(client, 'patch', `/habits/${habit._id}/complete`)
+                .send({ date: dayKey(0), status: 'skipped' })
+                .expect(400);
+
+            expect(response.body.error.details).toHaveProperty('status');
+        });
+
+        it('requires a status', async () => {
             const habit = await createHabit(client);
 
             const response = await write(client, 'patch', `/habits/${habit._id}/complete`)
                 .send({ date: daysFromToday(0) })
                 .expect(400);
 
-            expect(response.body.error.details).toHaveProperty('completed');
+            expect(response.body.error.details).toHaveProperty('status');
         });
 
         it('marks the habit complete once every day is done', async () => {
@@ -263,7 +332,7 @@ describe('Habit Controller', () => {
 
             for (const offset of [0, 1]) {
                 await write(client, 'patch', `/habits/${habit._id}/complete`)
-                    .send({ date: daysFromToday(offset), completed: true })
+                    .send({ date: daysFromToday(offset), status: 'done' })
                     .expect(200);
             }
 
@@ -278,7 +347,7 @@ describe('Habit Controller', () => {
         const completeFirstDays = async (habitId: string, count: number) => {
             for (let offset = 0; offset < count; offset++) {
                 await write(client, 'patch', `/habits/${habitId}/complete`)
-                    .send({ date: daysFromToday(offset), completed: true })
+                    .send({ date: daysFromToday(offset), status: 'done' })
                     .expect(200);
             }
         };
@@ -298,7 +367,7 @@ describe('Habit Controller', () => {
             expect(
                 response.body.data.habit.dailyCompletions
                     .slice(0, 2)
-                    .every((day: { completed: boolean }) => day.completed),
+                    .every((day: { status: string }) => day.status === 'done'),
             ).toBe(true);
         });
 
@@ -309,8 +378,8 @@ describe('Habit Controller', () => {
             const response = await update(habit._id, { duration: 6 });
 
             expect(response.body.data.habit.dailyCompletions).toHaveLength(6);
-            expect(response.body.data.habit.dailyCompletions[0].completed).toBe(true);
-            expect(response.body.data.habit.dailyCompletions[5].completed).toBe(false);
+            expect(response.body.data.habit.dailyCompletions[0].status).toBe('done');
+            expect(response.body.data.habit.dailyCompletions[5].status).toBe('pending');
         });
 
         it('shifts every scheduled date when the start moves, keeping progress', async () => {
@@ -325,7 +394,7 @@ describe('Habit Controller', () => {
             expect(dates[0]).toBe(daysFromToday(10).slice(0, 10));
             expect(dates[2]).toBe(daysFromToday(12).slice(0, 10));
             // Day one of the plan is still day one, and still done.
-            expect(response.body.data.habit.dailyCompletions[0].completed).toBe(true);
+            expect(response.body.data.habit.dailyCompletions[0].status).toBe('done');
         });
 
         it('leaves the plan alone when neither the start nor the length changes', async () => {
@@ -336,7 +405,7 @@ describe('Habit Controller', () => {
 
             expect(response.body.data.habit.title).toBe('Renamed');
             expect(response.body.data.habit.dailyCompletions).toHaveLength(4);
-            expect(response.body.data.habit.dailyCompletions[1].completed).toBe(true);
+            expect(response.body.data.habit.dailyCompletions[1].status).toBe('done');
         });
 
         it('refuses an update that changes nothing', async () => {
@@ -351,11 +420,11 @@ describe('Habit Controller', () => {
     });
 
     describe('streak', () => {
-        it('counts a day completed today', async () => {
+        it('counts a day done today', async () => {
             const habit = await createHabit(client, { duration: 3 });
 
             const response = await write(client, 'patch', `/habits/${habit._id}/complete`)
-                .send({ date: daysFromToday(0), completed: true })
+                .send({ date: daysFromToday(0), status: 'done' })
                 .expect(200);
 
             expect(response.body.data.habit.currentStreak).toBe(1);
@@ -365,7 +434,7 @@ describe('Habit Controller', () => {
             const habit = await createHabit(client, { duration: 5 });
 
             const response = await write(client, 'patch', `/habits/${habit._id}/complete`)
-                .send({ date: daysFromToday(3), completed: true })
+                .send({ date: daysFromToday(3), status: 'done' })
                 .expect(200);
 
             expect(response.body.data.habit.currentStreak).toBe(0);
@@ -375,11 +444,29 @@ describe('Habit Controller', () => {
             const habit = await createHabit(client, { duration: 3 });
 
             await write(client, 'patch', `/habits/${habit._id}/complete`)
-                .send({ date: daysFromToday(0), completed: true })
+                .send({ date: daysFromToday(0), status: 'done' })
                 .expect(200);
 
             const response = await write(client, 'patch', `/habits/${habit._id}/complete`)
-                .send({ date: daysFromToday(0), completed: false })
+                .send({ date: daysFromToday(0), status: 'pending' })
+                .expect(200);
+
+            expect(response.body.data.habit.currentStreak).toBe(0);
+        });
+
+        /**
+         * Today's grace covers a day not yet decided. Saying outright that you
+         * failed it is a decision, and it ends the run.
+         */
+        it('ends the run when today is marked failed', async () => {
+            const habit = await createHabit(client, { duration: 3 });
+
+            await write(client, 'patch', `/habits/${habit._id}/complete`)
+                .send({ date: dayKey(0), status: 'done' })
+                .expect(200);
+
+            const response = await write(client, 'patch', `/habits/${habit._id}/complete`)
+                .send({ date: dayKey(0), status: 'failed' })
                 .expect(200);
 
             expect(response.body.data.habit.currentStreak).toBe(0);

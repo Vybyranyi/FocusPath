@@ -2,20 +2,19 @@ import CircleLoader from '@components/habit/CircleLoader';
 import tick_success from '@assets/images/icons/tick_success.svg';
 import cross_red    from '@assets/images/icons/cross_red.svg';
 import { useSwipeable } from 'react-swipeable';
-import { useState, useRef, useEffect, useCallback, memo } from 'react';
-import type { HabitSummary } from '@shared/index';
+import { useState, useRef, useCallback, memo } from 'react';
+import type { DayStatus, HabitSummary } from '@shared/index';
 import { markHabitCompletion } from '@store/habitSlice';
 import { useAppDispatch } from '@store/hooks';
 import { motion, AnimatePresence } from 'framer-motion';
 import { dayKeyOf, todayKey } from '@/lib/dates';
+import { dayState } from '@/lib/habitStatus';
 import { getHabitProgress } from '@/lib/habitProgress';
 import HabitDetailPopup from '@components/habit/HabitDetailPopup';
 
 interface IHabitCardProps {
   habit: HabitSummary;
 }
-
-type Status = 'idle' | 'done' | 'failed';
 
 function HabitCard({ habit }: IHabitCardProps) {
   const dispatch   = useAppDispatch();
@@ -29,35 +28,21 @@ function HabitCard({ habit }: IHabitCardProps) {
   const today    = todayKey();
   const habitDay = dayKeyOf(habit.dayInfo.date);
   const isFuture = habitDay > today;
-  const isPast   = habitDay < today;
 
-  const getInitialStatus = (): Status => {
-    if (habit.dayInfo.completed) return 'done';
-    if (isPast) return 'failed';
-    return 'idle';
-  };
-
-  const [status, setStatus] = useState<Status>(getInitialStatus);
-
-  // Sync status when Redux updates the habit
-  useEffect(() => {
-    if (habit.dayInfo.completed) {
-      setStatus('done');
-    } else if (isPast) {
-      setStatus('failed');
-    }
-    // For today + completed=false: preserve local 'failed' state set by user
-  }, [habit.dayInfo.completed, habit.dayInfo.date, isPast]);
+  // Read straight from the store. This used to be local state kept in step by
+  // an effect, because the server could not represent "the user marked today
+  // failed" — so that verdict lived only in this component and died on the next
+  // refetch. The status enum holds it, and the copy here is gone with it.
+  const state = dayState(habit.dayInfo, today);
 
   const progress = getHabitProgress(habit.completedCount, habit.duration);
 
-  const handleComplete = useCallback((completed: boolean) => {
+  const handleMark = useCallback((status: DayStatus) => {
     dispatch(markHabitCompletion({
       habitId: habit._id,
       date: habit.dayInfo.date,
-      completed,
+      status,
     }));
-    setStatus(completed ? 'done' : 'failed');
   }, [dispatch, habit._id, habit.dayInfo.date]);
 
   const handlers = useSwipeable({
@@ -68,8 +53,8 @@ function HabitCard({ habit }: IHabitCardProps) {
     },
     onSwiped: e => {
       if (!isFuture) {
-        if (e.deltaX > 80)       handleComplete(true);
-        else if (e.deltaX < -80) handleComplete(false);
+        if (e.deltaX > 80)       handleMark('done');
+        else if (e.deltaX < -80) handleMark('failed');
       }
       setSwipeDelta(0);
       setTimeout(() => { wasSwipedRef.current = false; }, 300);
@@ -82,9 +67,13 @@ function HabitCard({ habit }: IHabitCardProps) {
     setShowDetail(true);
   };
 
+  // `missed` gets its own colour rather than borrowing the red one. Letting a
+  // day slip is not the same as deciding you failed it, and the two looked
+  // identical while both were `completed: false`.
   const ringStyle: React.CSSProperties =
-    status === 'done'   ? { boxShadow: 'inset 0 0 0 1.5px #3BA935' } :
-    status === 'failed' ? { boxShadow: 'inset 0 0 0 1.5px #E3524F' } :
+    state === 'done'   ? { boxShadow: 'inset 0 0 0 1.5px #3BA935' } :
+    state === 'failed' ? { boxShadow: 'inset 0 0 0 1.5px #E3524F' } :
+    state === 'missed' ? { boxShadow: 'inset 0 0 0 1.5px #F0A73B' } :
     { boxShadow: 'inset 0 0 0 1px #EAECF0' };
 
   const swipeBgClass =
@@ -118,13 +107,13 @@ function HabitCard({ habit }: IHabitCardProps) {
             <div className="hidden lg:flex items-center gap-1 shrink-0">
               <button
                 className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-success-20 transition-colors"
-                onClick={e => { e.stopPropagation(); handleComplete(true); }}
+                onClick={e => { e.stopPropagation(); handleMark('done'); }}
               >
                 <img src={tick_success} className="w-4 h-4" alt="Done" />
               </button>
               <button
                 className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-error-20 transition-colors"
-                onClick={e => { e.stopPropagation(); handleComplete(false); }}
+                onClick={e => { e.stopPropagation(); handleMark('failed'); }}
               >
                 <img src={cross_red} className="w-4 h-4" alt="Fail" />
               </button>

@@ -178,7 +178,10 @@ export const getHabitsForDate = (userId: string, date: Date) => {
                 duration: 1,
                 completedCount: {
                     $size: {
-                        $filter: { input: '$dailyCompletions', cond: '$$this.completed' },
+                        $filter: {
+                            input: '$dailyCompletions',
+                            cond: { $eq: ['$$this.status', 'done'] },
+                        },
                     },
                 },
             },
@@ -251,12 +254,12 @@ export const setDayTitle = async (
 export const markCompletion = async (
     userId: string,
     habitId: string,
-    { date, completed }: MarkCompletionDto,
+    { date, status }: MarkCompletionDto,
 ): Promise<IHabit> => {
     const habit = await requireOwnedHabit(userId, habitId);
     const index = requireScheduledDay(habit, startOfUtcDay(date ?? new Date()));
 
-    habit.dailyCompletions[index].completed = completed;
+    habit.dailyCompletions[index].status = status;
     refreshProgress(habit);
     await habit.save();
 
