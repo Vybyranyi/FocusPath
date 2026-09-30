@@ -122,7 +122,7 @@ export const createAIHabit = async (
 
     let plan;
     try {
-        plan = await generateHabitPlan(dto.title, dto.type, requestedDuration);
+        plan = await generateHabitPlan(dto.title, dto.type, requestedDuration, dto.description);
     } catch (error) {
         // Worth a log line, but the caller only needs to know the AI is
         // unavailable — not why, and not with our stack attached.
