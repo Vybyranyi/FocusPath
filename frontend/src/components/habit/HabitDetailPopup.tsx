@@ -72,6 +72,32 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
   const { notify } = useToast();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * The menu closes when you click away from it or press Escape. Both were
+   * lost when the sheet moved to Radix: the menu stayed open until its own
+   * button was pressed again, and Escape closed the whole sheet under it.
+   * Escape is caught in the capture phase and stopped, so it closes only the
+   * menu and Radix's own Escape handling never sees it.
+   */
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      setMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, [menuOpen]);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -201,7 +227,7 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
-                <div className="relative">
+                <div className="relative" ref={menuRef}>
                    <button
                      type="button"
                      onClick={() => setMenuOpen(!menuOpen)}

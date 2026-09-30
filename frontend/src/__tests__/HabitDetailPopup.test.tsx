@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import HabitDetailPopup from "@components/habit/HabitDetailPopup";
 import type { HabitSummary } from "@shared/index";
 import { toDayKey } from "@/lib/dates";
@@ -134,6 +134,33 @@ describe("HabitDetailPopup", () => {
       );
 
       expect(screen.getByText("Day 12")).toBeInTheDocument();
+    });
+  });
+
+  describe("the habit menu", () => {
+    // The menu animates out, so it leaves the DOM a moment after it closes.
+    it("closes when you click elsewhere in the sheet", async () => {
+      open(withSteps(0));
+      fireEvent.click(screen.getByRole("button", { name: /habit options/i }));
+
+      fireEvent.pointerDown(screen.getByText(/current streak/i));
+
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: /edit habit/i })).not.toBeInTheDocument(),
+      );
+    });
+
+    /** Escape closed the whole sheet under an open menu. */
+    it("closes on Escape and leaves the sheet open", async () => {
+      open(withSteps(0));
+      fireEvent.click(screen.getByRole("button", { name: /habit options/i }));
+
+      fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
+
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: /edit habit/i })).not.toBeInTheDocument(),
+      );
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
     });
   });
 });
