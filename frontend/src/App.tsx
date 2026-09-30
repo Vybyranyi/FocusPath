@@ -1,19 +1,24 @@
 // Global styles are in src/index.css
 import { fetchCurrentUser } from "@store/authSlice";
 import { useAppDispatch, useAppSelector } from "@store/hooks";
-import { useEffect, useState, Suspense } from "react";
+import { lazy, useEffect, useState, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import Layout from "@components/layout/Layout";
 import LoginPage from "@pages/LoginPage";
-import RegisterPage from "@pages/RegisterPage";
-import ForgotPasswordPage from "@pages/ForgotPasswordPage";
-import ResetPasswordPage from "@pages/ResetPasswordPage";
 import Main from "@pages/Main";
-import CreateHabit from "@pages/CreateHabit";
-import ProfilePage from "@pages/ProfilePage";
-import StatsPage from "@pages/StatsPage";
-import ExplorePage from "@pages/ExplorePage";
-import PlanDetailPage from "@pages/PlanDetailPage";
+
+// The two pages someone lands on are in the first bundle; the rest load when
+// first visited. Everything used to ship in one 1.1 MB file, so reaching the
+// login form meant downloading the create form, the library and the stats
+// page first. `<Suspense>` below was already in place and had nothing to wait on.
+const RegisterPage = lazy(() => import("@pages/RegisterPage"));
+const ForgotPasswordPage = lazy(() => import("@pages/ForgotPasswordPage"));
+const ResetPasswordPage = lazy(() => import("@pages/ResetPasswordPage"));
+const CreateHabit = lazy(() => import("@pages/CreateHabit"));
+const ProfilePage = lazy(() => import("@pages/ProfilePage"));
+const StatsPage = lazy(() => import("@pages/StatsPage"));
+const ExplorePage = lazy(() => import("@pages/ExplorePage"));
+const PlanDetailPage = lazy(() => import("@pages/PlanDetailPage"));
 import AppLoading from "@components/habit/AppLoading";
 import ProtectedRoute from "@components/layout/ProtectedRoute";
 

@@ -8,6 +8,29 @@ import path from 'path';
 export default defineConfig({
   envDir: path.resolve(__dirname, '..'),
   plugins: [react(), tailwindcss()],
+  build: {
+    rollupOptions: {
+      output: {
+        /**
+         * Libraries in a chunk of their own, apart from the app's code.
+         *
+         * Everything shipped as one file, so every deploy — even a one-line
+         * copy change — gave it a new hash and every returning visitor
+         * downloaded the whole ~270 kB again. Libraries change only when a
+         * dependency does; the year-long cache on /assets/ then keeps them.
+         *
+         * One chunk, not one per library. Splitting React from the libraries
+         * built on it made the two chunks import each other, and the page
+         * died on load with React half-initialised. The emoji table is only
+         * data, so it can stand apart safely.
+         */
+        manualChunks(id) {
+          if (id.includes("react-apple-emojis/src/data.json")) return "emoji";
+          if (id.includes("node_modules/")) return "vendor";
+        },
+      },
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',
