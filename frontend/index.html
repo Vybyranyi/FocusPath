@@ -8,7 +8,13 @@
     <meta name="description" content="Track the habits you are building and the ones you are quitting, one day at a time." />
 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <!-- PNG, not the SVG it replaces: iOS ignores an SVG touch icon and puts a
+         screenshot of the page on the home screen instead. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="FocusPath" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 
     <!-- The app ships both themes, so let the browser paint its own chrome to
          match instead of assuming light. -->

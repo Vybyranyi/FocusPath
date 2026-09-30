@@ -22,3 +22,13 @@ createRoot(document.getElementById('root')!).render(
     </Provider>
   </StrictMode>,
 )
+
+// Production only. Under Vite's dev server the modules are served unbundled and
+// change on every save, and a worker holding them would serve stale code.
+if (import.meta.env.PROD && "serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // Installability is a nicety; the app works the same without it.
+    });
+  });
+}

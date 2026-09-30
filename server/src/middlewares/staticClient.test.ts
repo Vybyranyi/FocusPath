@@ -36,6 +36,8 @@ describe('serving the client', () => {
         fs.writeFileSync(path.join(distDir, 'index.html'), '<!doctype html><title>FocusPath</title>');
         fs.mkdirSync(path.join(distDir, 'assets'));
         fs.writeFileSync(path.join(distDir, 'assets', 'index-abc123.js'), 'console.log(1);');
+        fs.writeFileSync(path.join(distDir, 'sw.js'), 'self.addEventListener("fetch", () => {});');
+        fs.writeFileSync(path.join(distDir, 'manifest.webmanifest'), '{"name":"FocusPath"}');
 
         app = makeApp(distDir);
     });
@@ -74,6 +76,20 @@ describe('serving the client', () => {
                 .expect(200);
 
             expect(response.headers['cache-control']).toContain('max-age=31536000');
+        });
+
+        /** A year-cached worker would never be replaced by a new deploy's. */
+        it('has the service worker checked with the server on every use', async () => {
+            const response = await request(app).get('/sw.js').expect(200);
+
+            expect(response.headers['cache-control']).toBe('no-cache');
+        });
+
+        it('does not cache files that keep their name across deploys for a year', async () => {
+            const response = await request(app).get('/manifest.webmanifest').expect(200);
+
+            expect(response.headers['cache-control']).toBe('no-cache');
+            expect(response.headers['content-type']).toContain('application/manifest+json');
         });
 
         it('refuses to let index.html be cached', async () => {

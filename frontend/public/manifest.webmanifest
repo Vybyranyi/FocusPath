@@ -1,0 +1,16 @@
+{
+  "id": "/",
+  "name": "FocusPath — habit tracker",
+  "short_name": "FocusPath",
+  "description": "Track the habits you are building and the ones you are quitting, one day at a time.",
+  "start_url": "/main",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F6F9FF",
+  "theme_color": "#F6F9FF",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
