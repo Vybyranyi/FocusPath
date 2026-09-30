@@ -256,6 +256,46 @@ describe('Plan Controller', () => {
         });
     });
 
+    describe('when the author deletes their account', () => {
+        const deleteAccount = (who: Client) =>
+            write(who, 'delete', '/auth/account').send({ password: 'password123' }).expect(200);
+
+        it('takes their plans out of the library', async () => {
+            const habit = await createHabit(client);
+            const plan = await publish(client, habit._id);
+
+            await deleteAccount(client);
+
+            const list = await request(app).get('/plans').expect(200);
+            expect(list.body.data.plans.map((p: { _id: string }) => p._id)).not.toContain(plan._id);
+        });
+
+        it('leaves nothing that names them', async () => {
+            const habit = await createHabit(client);
+            const plan = await publish(client, habit._id, { displayName: 'Ann' });
+
+            await deleteAccount(client);
+
+            const stored = await Plan.findById(plan._id);
+            expect(stored?.status).toBe('unpublished');
+            expect(stored?.author.displayName).toBeUndefined();
+        });
+
+        it('leaves a habit someone else took from them in place', async () => {
+            const taker = await signUp({ email: 'taker@example.com' });
+            const habit = await createHabit(client);
+            const plan = await publish(client, habit._id);
+            const taken = await write(taker, 'post', '/habits/from-plan')
+                .send({ planId: plan._id, startDate: dayKey(0) })
+                .expect(201);
+
+            await deleteAccount(client);
+
+            const still = await taker.agent.get(`/habits/${taken.body.data.habit._id}`).expect(200);
+            expect(still.body.data.habit.fromPlanId).toBe(plan._id);
+        });
+    });
+
     describe('the day view', () => {
         /**
          * The day view is where a habit is published and edited from. Without

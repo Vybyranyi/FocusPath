@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from 'crypto';
 import User, { type IUser } from '@models/User';
 import Habit from '@models/Habit';
+import Plan from '@models/Plan';
 import { hashPassword, placeholderHash, verifyPassword } from '@utils/password';
 import { createSessionId, verifyRefreshToken } from '@utils/tokens';
 import {
@@ -361,6 +362,15 @@ export const deleteAccount = async (
         throw new BadRequestError('Password is incorrect');
     }
 
+    // Plans leave the library with their author. They used to stay published,
+    // signed with the display name of someone who had asked for everything of
+    // theirs to be removed. Withdrawn rather than deleted: the habits other
+    // people took from them keep their `fromPlanId`, and moderation keeps its
+    // record — but nothing of this person stays public, and nothing names them.
+    await Plan.updateMany(
+        { 'author.userId': userId },
+        { $set: { status: 'unpublished' }, $unset: { 'author.displayName': '' } },
+    );
     await Habit.deleteMany({ userId });
     await User.findByIdAndDelete(userId);
 };
