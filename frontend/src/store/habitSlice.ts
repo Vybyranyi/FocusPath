@@ -18,6 +18,12 @@ export interface IHabitSlice {
    */
   creating: "manual" | "ai" | null;
   error: string | null;
+  /**
+   * The day request whose answer the day view is waiting for. Stepping
+   * through the week fires one request per tap, and an earlier one that
+   * answered last used to replace the day actually on screen.
+   */
+  dayRequestId: string | null;
 }
 
 const initialState: IHabitSlice = {
@@ -26,6 +32,7 @@ const initialState: IHabitSlice = {
   loading: false,
   creating: null,
   error: null,
+  dayRequestId: null,
 };
 
 /** Blank rows are what an "add step" button leaves behind; they are not steps. */
@@ -283,15 +290,18 @@ const habitSlice = createSlice({
       });
 
     builder
-      .addCase(getHabitsForDate.pending, (state) => {
+      .addCase(getHabitsForDate.pending, (state, action) => {
         state.loading = true;
         state.error = null;
+        state.dayRequestId = action.meta.requestId;
       })
       .addCase(getHabitsForDate.fulfilled, (state, action) => {
+        if (action.meta.requestId !== state.dayRequestId) return;
         state.loading = false;
         state.habitsForDate = action.payload.habits || [];
       })
       .addCase(getHabitsForDate.rejected, (state, action) => {
+        if (action.meta.requestId !== state.dayRequestId) return;
         state.loading = false;
         state.error = action.payload as string;
       });

@@ -136,6 +136,7 @@ export const habitState = (
     loading: false,
     creating: null,
     error: null,
+    dayRequestId: null,
     ...overrides,
   },
 });

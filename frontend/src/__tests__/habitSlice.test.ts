@@ -396,4 +396,25 @@ describe("habitSlice", () => {
 
     expect(store.getState().habit.habitsForDate[0].publishedPlanId).toBeUndefined();
   });
+
+  /**
+   * Tapping through the week fires one request per day. When an earlier one
+   * answered last, its habits replaced the day actually on screen.
+   */
+  it("shows the day asked for last, whatever order the answers arrive in", async () => {
+    const store = makeStore();
+    const answers: Array<(value: Response) => void> = [];
+    fetchMock.mockImplementation(() => new Promise<Response>((resolve) => { answers.push(resolve); }));
+
+    const monday = store.dispatch(getHabitsForDate("2026-09-28"));
+    const tuesday = store.dispatch(getHabitsForDate("2026-09-29"));
+
+    answers[1](ok({ date: "2026-09-29", habits: [makeHabitSummary({ _id: "tuesday" })] }));
+    await tuesday;
+    answers[0](ok({ date: "2026-09-28", habits: [makeHabitSummary({ _id: "monday" })] }));
+    await monday;
+
+    expect(store.getState().habit.habitsForDate.map((h) => h._id)).toEqual(["tuesday"]);
+    expect(store.getState().habit.loading).toBe(false);
+  });
 });
