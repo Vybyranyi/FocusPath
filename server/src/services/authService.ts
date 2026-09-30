@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'crypto';
 import User, { type IUser } from '@models/User';
 import Habit from '@models/Habit';
 import { hashPassword, placeholderHash, verifyPassword } from '@utils/password';
@@ -9,11 +10,15 @@ import {
     UnauthorizedError,
     ValidationError,
 } from '@errors/AppError';
+import { logger } from '@config/logger';
+import { sendMail } from '@services/mailService';
 import type {
     ChangePasswordDto,
     DeleteAccountDto,
+    ForgotPasswordDto,
     LoginDto,
     RegisterDto,
+    ResetPasswordDto,
     UpdateProfileDto,
 } from '@validation/authSchemas';
 
@@ -231,6 +236,113 @@ export const changePassword = async (
     user.password = await hashPassword(newPassword);
     user.tokenVersion += 1;
     user.refreshSessions = [];
+    // A reset link still in someone's inbox would otherwise undo this change.
+    user.passwordResetHash = undefined;
+    user.passwordResetExpires = undefined;
+
+    return startSession(user);
+};
+
+/** How long a reset link works. Long enough to find the mail, short enough to go stale. */
+export const RESET_TTL_MS = 30 * 60 * 1000;
+
+const hashResetToken = (token: string): string => createHash('sha256').update(token).digest('hex');
+
+/**
+ * Where links in mail point.
+ *
+ * Deliberately never built from the request. The `Host` header is whatever the
+ * sender typed, so a reset requested with `Host: evil.example` would mail the
+ * account's owner a working token on the attacker's site — the classic reset
+ * poisoning. Outside production it falls back to the first allowed origin,
+ * which is the Vite dev server; in production it must be configured.
+ */
+const appUrl = (): string | null => {
+    const configured =
+        process.env.APP_URL ??
+        (process.env.NODE_ENV === 'production'
+            ? undefined
+            : process.env.CORS_ORIGIN?.split(',')[0]?.trim() || 'http://localhost:5173');
+    return configured ? configured.replace(/\/+$/, '') : null;
+};
+
+/**
+ * Mails a reset link, if there is an account to reset.
+ *
+ * The reply is the same either way — the handler answers 200 regardless — so
+ * this cannot be used to learn which addresses have accounts, the same rule
+ * `login` follows. The mail is sent without being awaited for the same reason:
+ * an SMTP round trip on only the "exists" path would be a timing tell.
+ *
+ * The token travels in the link's fragment (`#token=`), not its query. A
+ * fragment is never sent to a server and never appears in a Referer, so the
+ * reset page can load images from a CDN without handing the token to it.
+ */
+export const requestPasswordReset = async ({ email }: ForgotPasswordDto): Promise<void> => {
+    const user = await User.findOne({ email });
+    if (!user) return;
+
+    const base = appUrl();
+    if (!base) {
+        logger.error('Password reset requested but APP_URL is not configured');
+        return;
+    }
+
+    const token = randomBytes(32).toString('base64url');
+
+    // An update rather than a save: the document was loaded without its
+    // unselected fields, and this touches only the two it needs.
+    await User.updateOne(
+        { _id: user._id },
+        {
+            $set: {
+                passwordResetHash: hashResetToken(token),
+                passwordResetExpires: new Date(Date.now() + RESET_TTL_MS),
+            },
+        },
+    );
+
+    void sendMail({
+        to: user.email,
+        subject: 'Reset your FocusPath password',
+        text: [
+            `Hi ${user.name},`,
+            '',
+            'Someone asked to reset the password for your FocusPath account.',
+            `If it was you, open this link within ${RESET_TTL_MS / 60_000} minutes to choose a new one:`,
+            '',
+            `${base}/reset-password#token=${token}`,
+            '',
+            'If it was not you, ignore this message — your password stays as it is.',
+        ].join('\n'),
+    }).catch(error => logger.error({ err: error }, 'Failed to send password reset mail'));
+};
+
+/**
+ * Sets a new password from a reset link, and signs the person in.
+ *
+ * Looked up by the token's hash, with the expiry compared here rather than in
+ * the query: `sanitizeFilter` would wrap a `$gt` written in this file exactly
+ * as it wraps one arriving in a body, and the lookup would never match.
+ *
+ * Everything a password change does happens here too. Every other session
+ * ends, because a reset is what someone does when they think an account is not
+ * only theirs any more.
+ */
+export const resetPassword = async ({ token, newPassword }: ResetPasswordDto): Promise<Session> => {
+    const user = await User.findOne({ passwordResetHash: hashResetToken(token) }).select(
+        '+password +refreshSessions +passwordResetExpires',
+    );
+
+    if (!user || !user.passwordResetExpires || user.passwordResetExpires.getTime() < Date.now()) {
+        throw new BadRequestError('This reset link is invalid or has expired');
+    }
+
+    user.password = await hashPassword(newPassword);
+    user.tokenVersion += 1;
+    user.refreshSessions = [];
+    user.passwordResetHash = undefined;
+    user.passwordResetExpires = undefined;
 
     return startSession(user);
 };

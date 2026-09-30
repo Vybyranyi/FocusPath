@@ -7,6 +7,9 @@ import { cn } from "@/lib/utils";
 import { useIsDesktop } from "@hooks/useIsDesktop";
 import { useAppSelector } from "@store/hooks";
 
+/** Pages for someone not yet signed in, which carry no navigation of their own. */
+const AUTH_PAGES = ["/login", "/register", "/forgot-password", "/reset-password"];
+
 export default function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const isDesktop = useIsDesktop();
@@ -16,10 +19,10 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   // Creating a habit hides the bar on mobile — the form needs the room — but
   // keeps it on desktop, where it sits beside the content.
-  const hideOnMobile = ["/login", "/register", "/createhabit"].some((path) =>
+  const hideOnMobile = [...AUTH_PAGES, "/createhabit"].some((path) =>
     location.pathname.startsWith(path),
   );
-  const hideOnDesktop = ["/login", "/register"].some((path) =>
+  const hideOnDesktop = AUTH_PAGES.some((path) =>
     location.pathname.startsWith(path),
   );
   const hidden = isDesktop ? hideOnDesktop : hideOnMobile;

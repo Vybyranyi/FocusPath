@@ -60,6 +60,37 @@ export const loginUser = createAsyncThunk(
 );
 
 /**
+ * Asks for a reset link. The server answers the same whether or not the
+ * address has an account, so there is nothing to put in the store — the page
+ * says what happens next either way.
+ */
+export const requestPasswordReset = createAsyncThunk(
+    "auth/requestPasswordReset",
+    async (email: string, { rejectWithValue }) => {
+        try {
+            await apiRequest<null>("/auth/forgot-password", { method: "POST", body: { email } });
+        } catch (error) {
+            return rejectWithValue(errorMessage(error));
+        }
+    },
+);
+
+/** Sets a new password from a reset link. The server signs the person in. */
+export const resetPassword = createAsyncThunk(
+    "auth/resetPassword",
+    async ({ token, newPassword }: { token: string; newPassword: string }, { rejectWithValue }) => {
+        try {
+            return await apiRequest<UserResponse>("/auth/reset-password", {
+                method: "POST",
+                body: { token, newPassword },
+            });
+        } catch (error) {
+            return rejectWithValue(errorMessage(error));
+        }
+    },
+);
+
+/**
  * Restores the session on load. The cookies are already in the browser, so this
  * only asks who they belong to; the client renews an expired access cookie on
  * its own before this ever sees a 401.
@@ -168,6 +199,12 @@ const authSlice = createSlice({
                 state.loading = false;
                 state.error = action.payload as string;
             });
+
+        // The reset page shows its own errors beside its own form; the slice's
+        // `error` belongs to the login form and would appear there next.
+        builder.addCase(resetPassword.fulfilled, (state, action) => {
+            state.user = action.payload.user;
+        });
 
         builder
             .addCase(loginUser.pending, (state) => {

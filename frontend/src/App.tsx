@@ -6,6 +6,8 @@ import { Navigate, Route, Routes } from "react-router";
 import Layout from "@components/layout/Layout";
 import LoginPage from "@pages/LoginPage";
 import RegisterPage from "@pages/RegisterPage";
+import ForgotPasswordPage from "@pages/ForgotPasswordPage";
+import ResetPasswordPage from "@pages/ResetPasswordPage";
 import Main from "@pages/Main";
 import CreateHabit from "@pages/CreateHabit";
 import ProfilePage from "@pages/ProfilePage";
@@ -37,6 +39,8 @@ function App() {
         <Routes>
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route
             path="/main/*"
             element={

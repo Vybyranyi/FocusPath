@@ -49,6 +49,17 @@ services:
       - key: OPENAI_API_KEY
         sync: false
 
+      # Password reset. APP_URL is where the links in the mail point — the
+      # public address of this service. It is never taken from the request,
+      # whose Host header the sender chooses. Without SMTP_URL no mail goes out
+      # and the server logs an error instead of the link.
+      - key: APP_URL
+        sync: false
+      - key: SMTP_URL
+        sync: false
+      - key: MAIL_FROM
+        sync: false
+
       - key: BCRYPT_ROUNDS
         value: "12"
 
