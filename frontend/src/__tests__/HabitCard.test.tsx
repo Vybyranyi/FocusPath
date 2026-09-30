@@ -43,6 +43,7 @@ const renderDay = (offset: number, status: DayStatus = "pending") =>
         dayInfo: {
           _id: "day-1",
           dayTitle: "Read 10 pages",
+          completedSteps: [],
           date: utcMidnightOf(daysFromToday(offset)),
           status,
         },

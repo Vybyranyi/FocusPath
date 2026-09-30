@@ -6,6 +6,9 @@ import Modal from "@components/ui/Modal";
 import CategoryPicker from "@components/pickers/CategoryPicker";
 import ColorPicker from "@components/pickers/ColorPicker";
 import EmojiPicker from "@components/pickers/EmojiPicker";
+import StepsEditor from "@components/habit/StepsEditor";
+import { stepsProblem } from "@/lib/steps";
+import type { StepDraft } from "@/types/forms";
 import { useAppDispatch } from "@store/hooks";
 import { renameHabitDay, updateHabit, type HabitChanges } from "@store/habitSlice";
 import { useToast } from "@hooks/useToast";
@@ -49,6 +52,9 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
   const [color, setColor] = useState(habit.color);
   const [duration, setDuration] = useState(String(habit.duration));
   const [dayTitle, setDayTitle] = useState(habit.dayInfo.dayTitle);
+  const [steps, setSteps] = useState<StepDraft[]>(
+    (habit.steps ?? []).map((step) => ({ _id: step._id, title: step.title })),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -75,7 +81,20 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
       ? `Must be ${DAY_TITLE_MAX} characters or fewer`
       : "";
 
-  const invalid = Boolean(titleProblem || descriptionProblem || durationProblem || dayTitleProblem);
+  const invalid = Boolean(
+    titleProblem || descriptionProblem || durationProblem || dayTitleProblem || stepsProblem(steps),
+  );
+
+  // Blank rows are what "add step" leaves behind; they are not steps.
+  const cleanedSteps = steps
+    .map((step) => ({ ...step, title: step.title.trim() }))
+    .filter((step) => step.title);
+  const originalSteps = habit.steps ?? [];
+  const stepsChanged =
+    cleanedSteps.length !== originalSteps.length ||
+    cleanedSteps.some(
+      (step, index) => step._id !== originalSteps[index]._id || step.title !== originalSteps[index].title,
+    );
 
   const changes: HabitChanges = {};
   if (trimmedTitle !== habit.title) changes.title = trimmedTitle;
@@ -84,6 +103,10 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
   if (icon !== habit.icon) changes.icon = icon;
   if (color !== habit.color) changes.color = color;
   if (!durationProblem && parsedDuration !== habit.duration) changes.duration = parsedDuration;
+  if (stepsChanged) {
+    // An existing step travels with its id, so renaming it keeps its ticks.
+    changes.steps = cleanedSteps.map(({ _id, title: stepTitle }) => (_id ? { _id, title: stepTitle } : { title: stepTitle }));
+  }
 
   const renamesDay = trimmedDayTitle !== habit.dayInfo.dayTitle;
   const hasChanges = Object.keys(changes).length > 0 || renamesDay;
@@ -153,6 +176,8 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
         onChange={(event) => setDayTitle(event.target.value)}
         error={dayTitleProblem}
       />
+
+      <StepsEditor steps={steps} onChange={setSteps} />
 
       <CategoryPicker value={category} onChange={setCategory} />
       <EmojiPicker value={icon} onChange={setIcon} />

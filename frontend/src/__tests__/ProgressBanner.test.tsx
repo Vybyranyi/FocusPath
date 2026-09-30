@@ -18,6 +18,7 @@ const habit = (id: string, completed: boolean) =>
     dayInfo: {
       _id: `${id}-day`,
       dayTitle: "task",
+      completedSteps: [],
       date: "2025-01-06T00:00:00.000Z",
       status: completed ? "done" : "pending",
     },

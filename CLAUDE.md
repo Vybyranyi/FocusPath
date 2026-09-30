@@ -23,6 +23,7 @@ Run from the repo root unless noted.
 | Seed an admin account | `npm --prefix server run seed:admin` |
 | Migrate day flags to statuses | `npm --prefix server run migrate:day-status` |
 | Fold stored emails to lower case | `npm --prefix server run migrate:email-lowercase` |
+| Move step ticks from habit to day | `npm --prefix server run migrate:daily-steps` |
 
 `npm test` in the frontend is `vitest run` — non-watching, safe in CI. Use
 `test:watch` for the interactive runner.

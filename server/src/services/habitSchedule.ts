@@ -1,3 +1,4 @@
+import type { Types } from 'mongoose';
 import type { DayStatus } from '@shared/index';
 import { addUtcDays, startOfUtcDay } from '@utils/dates';
 
@@ -5,6 +6,7 @@ export interface ScheduledDay {
     dayTitle: string;
     date: Date;
     status: DayStatus;
+    completedSteps: Types.ObjectId[];
 }
 
 /**
@@ -75,6 +77,8 @@ export const buildSchedule = (
             dayTitle: previous?.dayTitle ?? defaultTitle,
             date: addUtcDays(startDate, offset),
             status: previous?.status ?? 'pending',
+            // Ticks move with the day they were made on, like its status does.
+            completedSteps: previous ? [...previous.completedSteps] : [],
         };
     });
 

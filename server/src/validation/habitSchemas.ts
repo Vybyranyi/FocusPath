@@ -20,12 +20,31 @@ const duration = z
 
 const habitType = z.enum(['build', 'quit'], 'Type must be either "build" or "quit"');
 
-const steps = z.array(
-    z.object({
-        title: z.string().trim().min(1, 'Step title is required'),
-        completed: z.boolean().default(false),
-    }),
-);
+const MAX_STEPS = 20;
+
+const stepTitle = z
+    .string()
+    .trim()
+    .min(1, 'Step title is required')
+    .max(100, 'Must be 100 characters or fewer');
+
+/**
+ * A habit's daily checklist, as titles only. Whether a step is done is a fact
+ * about a day, recorded on the schedule — a `completed` flag here was what made
+ * a step ticked once stay ticked for the rest of the run.
+ *
+ * Capped, like every other list a user can grow: an unbounded array is copied
+ * into every response for this habit.
+ */
+const steps = z.array(z.object({ title: stepTitle })).max(MAX_STEPS, `At most ${MAX_STEPS} steps`);
+
+/**
+ * Steps as an edit sends them. An `_id` names a step that already exists, so
+ * renaming it keeps the ticks made against it; a step without one is new.
+ */
+const editedSteps = z
+    .array(z.object({ _id: objectId('step ID').optional(), title: stepTitle }))
+    .max(MAX_STEPS, `At most ${MAX_STEPS} steps`);
 
 /**
  * Compared at day granularity in UTC, matching how the schedule is generated,
@@ -94,6 +113,7 @@ export const createAIHabitSchema = z.object({
     // nothing to offer the publish sheet later.
     description: z.string().trim().max(500, 'Must be 500 characters or fewer').optional(),
     category: z.string().trim().max(50, 'Must be 50 characters or fewer').optional(),
+    steps: steps.optional(),
     startDate,
     // Absent, null or zero all mean "let the model choose the length".
     duration: duration.nullish(),
@@ -108,7 +128,7 @@ export const updateHabitSchema = z
         title: title.optional(),
         description: z.string().trim().max(500).optional(),
         category: z.string().trim().max(50).optional(),
-        steps: steps.optional(),
+        steps: editedSteps.optional(),
         // No not-in-past rule here: an existing habit may legitimately have
         // started before today, and rescheduling one is not creating one.
         startDate: z.coerce.date('Must be a valid date').optional(),
@@ -131,6 +151,12 @@ export const markCompletionSchema = z.object({
     ),
 });
 export type MarkCompletionDto = z.infer<typeof markCompletionSchema>;
+
+/** Which day a step is being ticked on. A step is done on a day, not once and for all. */
+export const toggleStepSchema = z.object({
+    date: z.coerce.date('Must be a valid date'),
+});
+export type ToggleStepDto = z.infer<typeof toggleStepSchema>;
 
 export const updateDayTitleSchema = z.object({
     date: z.coerce.date('Must be a valid date'),

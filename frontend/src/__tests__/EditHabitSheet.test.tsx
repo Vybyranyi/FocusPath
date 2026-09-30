@@ -133,4 +133,50 @@ describe("EditHabitSheet", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Title is too long");
     expect(onOpenChange).not.toHaveBeenCalledWith(false);
   });
+
+  describe("the checklist", () => {
+    /** An id keeps the days a step was ticked; a new id would lose them. */
+    it("sends a renamed step under the id it already had", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: serverHabit }));
+      open(makeHabitSummary({ steps: [{ _id: "s1", title: "Stretch" }] }));
+
+      fireEvent.change(screen.getByLabelText("Step 1"), { target: { value: "Stretch 10 minutes" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(bodyAt(0)).toEqual({ steps: [{ _id: "s1", title: "Stretch 10 minutes" }] });
+    });
+
+    it("adds a step without an id and drops blank rows", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: serverHabit }));
+      open(makeHabitSummary({ steps: [{ _id: "s1", title: "Stretch" }] }));
+
+      fireEvent.click(screen.getByRole("button", { name: /add step/i }));
+      fireEvent.change(screen.getByLabelText("Step 2"), { target: { value: "Water" } });
+      fireEvent.click(screen.getByRole("button", { name: /add step/i }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(bodyAt(0)).toEqual({ steps: [{ _id: "s1", title: "Stretch" }, { title: "Water" }] });
+    });
+
+    it("removes a step", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: serverHabit }));
+      open(makeHabitSummary({ steps: [{ _id: "s1", title: "Stretch" }, { _id: "s2", title: "Water" }] }));
+
+      fireEvent.click(screen.getByRole("button", { name: "Remove step 1" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(bodyAt(0)).toEqual({ steps: [{ _id: "s2", title: "Water" }] });
+    });
+
+    it("treats an untouched checklist as no change", () => {
+      open(makeHabitSummary({ steps: [{ _id: "s1", title: "Stretch" }] }));
+
+      fireEvent.click(screen.getByRole("button", { name: /add step/i }));
+
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    });
+  });
 });

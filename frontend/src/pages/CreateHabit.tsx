@@ -7,6 +7,8 @@ import EmojiPicker from "@components/pickers/EmojiPicker";
 import HabitTypePicker from "@components/pickers/HabitTypePicker";
 import Input from "@components/ui/Input";
 import WeekDatePicker from "@components/pickers/WeekDatePicker";
+import StepsEditor from "@components/habit/StepsEditor";
+import { STEP_TITLE_MAX } from "@/lib/steps";
 import { createAIHabit, createHabit } from "@store/habitSlice";
 import { useAppDispatch, useAppSelector } from "@store/hooks";
 import { Form, Formik } from "formik";
@@ -46,6 +48,9 @@ const validationSchema = Yup.object({
         }),
     otherwise: (s) => s.notRequired(),
   }),
+  steps: Yup.array().of(
+    Yup.object({ title: Yup.string().max(STEP_TITLE_MAX, `Each step must be ${STEP_TITLE_MAX} characters or fewer`) }),
+  ),
   habitType: Yup.string()
     .oneOf(["build", "quit"])
     .required("Habit type is required"),
@@ -57,6 +62,7 @@ const initialValues: CreateHabitFormValues = {
   habitName: "",
   habitDescription: "",
   category: "",
+  steps: [],
   startDate: new Date(),
   aiEnabled: false,
   duration: "",
@@ -152,6 +158,10 @@ export default function CreateHabit() {
                   <CategoryPicker
                     value={values.category}
                     onChange={(value) => setFieldValue("category", value)}
+                  />
+                  <StepsEditor
+                    steps={values.steps}
+                    onChange={(steps) => setFieldValue("steps", steps)}
                   />
                 </div>
 

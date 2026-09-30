@@ -11,6 +11,7 @@ afterEach(() => {
 const day = (date: string, status: DayStatus): DailyCompletion => ({
   _id: "day-1",
   dayTitle: "Read 10 pages",
+  completedSteps: [],
   date: `${date}T00:00:00.000Z`,
   status,
 });

@@ -63,6 +63,7 @@ export const makeHabitSummary = (
   dayInfo: {
     _id: "day-1",
     dayTitle: "Read 10 pages",
+    completedSteps: [],
     // A string, as it arrives over JSON — the old fixture used a Date, which
     // no response has ever actually contained.
     date: "2025-01-06T00:00:00.000Z",

@@ -1,6 +1,6 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import type { DayStatus, Habit, HabitSummary } from "@shared/index";
-import type { CreateHabitFormValues } from "@/types/forms";
+import type { CreateHabitFormValues, StepDraft } from "@/types/forms";
 import { apiRequest, errorMessage } from "@api/client";
 import { dayKeyOf, toDayKey, todayKey } from "@/lib/dates";
 
@@ -27,11 +27,18 @@ const initialState: IHabitSlice = {
   error: null,
 };
 
+/** Blank rows are what an "add step" button leaves behind; they are not steps. */
+const toStepsBody = (steps: StepDraft[]) => {
+  const titled = steps.map((step) => step.title.trim()).filter(Boolean);
+  return titled.length > 0 ? titled.map((title) => ({ title })) : undefined;
+};
+
 /** The form's shape, translated into what the API expects. */
 const toHabitBody = (values: CreateHabitFormValues, allowAutoDuration = false) => ({
   title: values.habitName.trim(),
   description: values.habitDescription.trim() || undefined,
   category: values.category || undefined,
+  steps: toStepsBody(values.steps),
   // The picker hands back local midnight. As a full instant that arrives as the
   // previous day east of Greenwich, which either shifted the whole schedule or
   // got the habit refused for starting "in the past".
@@ -118,18 +125,18 @@ export const markHabitCompletion = createAsyncThunk(
   },
 );
 
+/** Ticks or unticks a step on one day. `date` is a day the server named. */
 export const toggleHabitStep = createAsyncThunk(
   "habit/toggleHabitStep",
   async (
-    { habitId, stepId }: { habitId: string; stepId: string },
+    { habitId, stepId, date }: { habitId: string; stepId: string; date: string },
     { rejectWithValue },
   ) => {
     try {
-      const { completed } = await apiRequest<{ stepId: string; completed: boolean }>(
+      return await apiRequest<{ stepId: string; completed: boolean; habit: Habit }>(
         `/habits/${habitId}/steps/${stepId}`,
-        { method: "PATCH" },
+        { method: "PATCH", body: { date: dayKeyOf(date) } },
       );
-      return { habitId, stepId, completed };
     } catch (error) {
       return rejectWithValue(errorMessage(error));
     }
@@ -144,6 +151,7 @@ export interface HabitChanges {
   color?: string;
   icon?: string;
   duration?: number;
+  steps?: StepDraft[];
 }
 
 export const updateHabit = createAsyncThunk(
@@ -328,33 +336,30 @@ const habitSlice = createSlice({
       }
     });
 
+    /** Flips a step in the day view's copy of the day it was ticked on. */
+    const flipStep = (state: IHabitSlice, arg: { habitId: string; stepId: string; date: string }) => {
+      const habit = state.habitsForDate.find(
+        (h) => h._id === arg.habitId && dayKeyOf(h.dayInfo.date) === dayKeyOf(arg.date),
+      );
+      if (!habit) return;
+      const ticked = habit.dayInfo.completedSteps;
+      habit.dayInfo.completedSteps = ticked.includes(arg.stepId)
+        ? ticked.filter((id) => id !== arg.stepId)
+        : [...ticked, arg.stepId];
+    };
+
     builder
+      // Optimistic: a checklist that waits on the network before it ticks feels broken.
       .addCase(toggleHabitStep.pending, (state, action) => {
-        // Optimistic update
-        const { habitId, stepId } = action.meta.arg;
-        const habit = state.habitsForDate.find((h) => h._id === habitId);
-        const step = habit?.steps?.find((s) => s._id === stepId);
-        if (step) {
-          step.completed = !step.completed;
-        }
+        flipStep(state, action.meta.arg);
       })
+      // The server's answer replaces the guess wholesale — ticking the last
+      // step can also finish the day, which the guess knows nothing about.
       .addCase(toggleHabitStep.fulfilled, (state, action) => {
-        // Confirmation from the server; corrects the guess above if it differed.
-        const { habitId, stepId, completed } = action.payload;
-        const habit = state.habitsForDate.find((h) => h._id === habitId);
-        const step = habit?.steps?.find((s) => s._id === stepId);
-        if (step) {
-          step.completed = completed;
-        }
+        applyHabit(state, action.payload.habit);
       })
       .addCase(toggleHabitStep.rejected, (state, action) => {
-        // Rollback on failure
-        const { habitId, stepId } = action.meta.arg;
-        const habit = state.habitsForDate.find((h) => h._id === habitId);
-        const step = habit?.steps?.find((s) => s._id === stepId);
-        if (step) {
-          step.completed = !step.completed;
-        }
+        flipStep(state, action.meta.arg);
       });
 
     // Failures are left to the sheet that asked, which shows them beside the

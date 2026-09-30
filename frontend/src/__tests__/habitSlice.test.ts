@@ -4,6 +4,7 @@ import {
   getHabitsForDate,
   markHabitCompletion,
   renameHabitDay,
+  toggleHabitStep,
   updateHabit,
 } from "@store/habitSlice";
 import type { Habit } from "@shared/index";
@@ -39,6 +40,7 @@ const formValues = (overrides: Partial<CreateHabitFormValues> = {}): CreateHabit
   habitName: "Read daily",
   habitDescription: "Ten pages before bed",
   category: "learning",
+  steps: [],
   // Local midnight, which is what the date pickers hand back.
   startDate: new Date(2026, 7, 7),
   aiEnabled: false,
@@ -131,6 +133,7 @@ describe("habitSlice", () => {
               dayInfo: {
                 _id: "day-1",
                 dayTitle: "Read 10 pages",
+                completedSteps: [],
                 date: "2026-08-07T00:00:00.000Z",
                 status: "done",
               },
@@ -164,9 +167,9 @@ describe("habitSlice", () => {
       isCompleted: false,
       duration: 3,
       dailyCompletions: [
-        { _id: "d1", dayTitle: "Read", date: "2025-01-06T00:00:00.000Z", status: "done" },
-        { _id: "d2", dayTitle: "Read", date: "2025-01-07T00:00:00.000Z", status: "done" },
-        { _id: "d3", dayTitle: "Read", date: "2025-01-08T00:00:00.000Z", status: "pending" },
+        { _id: "d1", dayTitle: "Read", date: "2025-01-06T00:00:00.000Z", status: "done", completedSteps: [] },
+        { _id: "d2", dayTitle: "Read", date: "2025-01-07T00:00:00.000Z", status: "done", completedSteps: [] },
+        { _id: "d3", dayTitle: "Read", date: "2025-01-08T00:00:00.000Z", status: "pending", completedSteps: [] },
       ],
       createdAt: "2025-01-01T00:00:00.000Z",
       updatedAt: "2025-01-01T00:00:00.000Z",
@@ -190,7 +193,7 @@ describe("habitSlice", () => {
         habitState({
           habitsForDate: [
             makeHabitSummary({
-              dayInfo: { _id: "d2", dayTitle: "Read", date: "2025-01-07T00:00:00.000Z", status: "done" },
+              dayInfo: { _id: "d2", dayTitle: "Read", date: "2025-01-07T00:00:00.000Z", status: "done", completedSteps: [] },
             }),
           ],
           habits: [fullHabit()],
@@ -219,7 +222,7 @@ describe("habitSlice", () => {
         habitState({
           habitsForDate: [
             makeHabitSummary({
-              dayInfo: { _id: "d3", dayTitle: "Read", date: "2025-01-08T00:00:00.000Z", status: "pending" },
+              dayInfo: { _id: "d3", dayTitle: "Read", date: "2025-01-08T00:00:00.000Z", status: "pending", completedSteps: [] },
             }),
           ],
         }),
@@ -257,6 +260,99 @@ describe("habitSlice", () => {
 
       expect(urlAt(0)).toContain("/habits/habit-1/day");
       expect(bodyAt(0)).toEqual({ date: "2025-01-07", dayTitle: "Twenty pages" });
+    });
+  });
+
+  describe("the daily checklist", () => {
+    it("sends blank-free steps with a new habit", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: {} }));
+
+      await makeStore().dispatch(
+        createHabit(formValues({ steps: [{ title: " Stretch " }, { title: "  " }, { title: "Water" }] })),
+      );
+
+      expect(bodyAt(0).steps).toEqual([{ title: "Stretch" }, { title: "Water" }]);
+    });
+
+    it("sends no steps at all when every row is blank", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: {} }));
+
+      await makeStore().dispatch(createHabit(formValues({ steps: [{ title: "" }] })));
+
+      expect(bodyAt(0)).not.toHaveProperty("steps");
+    });
+
+    it("ticks a step on the day it names", async () => {
+      fetchMock.mockResolvedValue(ok({ stepId: "s1", completed: true, habit: {} }));
+
+      await makeStore().dispatch(
+        toggleHabitStep({ habitId: "habit-1", stepId: "s1", date: "2025-01-07T00:00:00.000Z" }),
+      );
+
+      expect(urlAt(0)).toContain("/habits/habit-1/steps/s1");
+      expect(bodyAt(0)).toEqual({ date: "2025-01-07" });
+    });
+
+    it("ticks straight away and takes it back if the server refuses", async () => {
+      const store = makeStore(
+        habitState({ habitsForDate: [makeHabitSummary({ steps: [{ _id: "s1", title: "Stretch" }] })] }),
+      );
+      let refuse: (value: Response) => void = () => undefined;
+      fetchMock.mockReturnValue(new Promise<Response>((resolve) => { refuse = resolve; }));
+
+      const pending = store.dispatch(
+        toggleHabitStep({ habitId: "habit-1", stepId: "s1", date: "2025-01-06T00:00:00.000Z" }),
+      );
+      expect(store.getState().habit.habitsForDate[0].dayInfo.completedSteps).toEqual(["s1"]);
+
+      refuse(
+        new Response(JSON.stringify({ success: false, error: { code: "NOT_FOUND", message: "Step not found" } }), {
+          status: 404,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+      await pending;
+
+      expect(store.getState().habit.habitsForDate[0].dayInfo.completedSteps).toEqual([]);
+    });
+
+    /** Ticking the last step can finish the day, which only the server knows. */
+    it("takes the day's status from the server's answer", async () => {
+      const store = makeStore(
+        habitState({ habitsForDate: [makeHabitSummary({ steps: [{ _id: "s1", title: "Stretch" }] })] }),
+      );
+      fetchMock.mockResolvedValue(
+        ok({
+          stepId: "s1",
+          completed: true,
+          habit: {
+            _id: "habit-1",
+            title: "Read",
+            startDate: "2025-01-06T00:00:00.000Z",
+            type: "build",
+            color: "blue",
+            icon: "books",
+            currentStreak: 1,
+            isCompleted: false,
+            duration: 7,
+            steps: [{ _id: "s1", title: "Stretch" }],
+            dailyCompletions: [
+              { _id: "day-1", dayTitle: "Read 10 pages", date: "2025-01-06T00:00:00.000Z", status: "done", completedSteps: ["s1"] },
+            ],
+            createdAt: "2025-01-01T00:00:00.000Z",
+            updatedAt: "2025-01-01T00:00:00.000Z",
+          },
+        }),
+      );
+
+      await store.dispatch(
+        toggleHabitStep({ habitId: "habit-1", stepId: "s1", date: "2025-01-06T00:00:00.000Z" }),
+      );
+
+      const summary = store.getState().habit.habitsForDate[0];
+      expect(summary.dayInfo.status).toBe("done");
+      expect(summary.currentStreak).toBe(1);
+      expect(summary.completedCount).toBe(1);
     });
   });
 });

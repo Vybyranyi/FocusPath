@@ -12,6 +12,7 @@
     "moderation:remove": "ts-node -r tsconfig-paths/register src/scripts/moderationRemove.ts",
     "migrate:day-status": "ts-node -r tsconfig-paths/register src/scripts/migrateDayStatus.ts",
     "migrate:email-lowercase": "ts-node -r tsconfig-paths/register src/scripts/migrateEmailLowercase.ts",
+    "migrate:daily-steps": "ts-node -r tsconfig-paths/register src/scripts/migrateDailySteps.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "jest",
