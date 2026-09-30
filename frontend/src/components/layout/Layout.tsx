@@ -34,6 +34,14 @@ export default function Layout({ children }: { children: ReactNode }) {
    * draws their avatar and their day.
    */
   const signedIn = Boolean(user);
+  /**
+   * Except on the pages for signing in. Their header is only a title and a
+   * back button — nothing of anyone's — and on a phone it is the only title
+   * they have, since the page's own heading is shown from tablet width up.
+   * Hiding it from everyone signed out left the login form without a heading
+   * and the registration form without its way back.
+   */
+  const onAuthPage = AUTH_PAGES.some((path) => location.pathname.startsWith(path));
   const showAppBar = signedIn && !hidden;
   const showGuestBar = !signedIn && !hideOnDesktop;
 
@@ -61,7 +69,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       {showAppBar && <AppBar />}
 
       <div className="w-full max-w-full box-border">
-        {signedIn ? <ResponsiveHeader /> : showGuestBar && <GuestBar />}
+        {signedIn || onAuthPage ? <ResponsiveHeader /> : showGuestBar && <GuestBar />}
         <main id="main" tabIndex={-1} className="outline-none">
           {children}
         </main>
