@@ -256,6 +256,35 @@ describe('Plan Controller', () => {
         });
     });
 
+    describe('the day view', () => {
+        /**
+         * The day view is where a habit is published and edited from. Without
+         * these two links it offered to publish a habit a second time, and could
+         * not warn that an edit takes a clone out of its plan's score.
+         */
+        it('says which plan a habit was published as', async () => {
+            const habit = await createHabit(client);
+            const plan = await publish(client, habit._id);
+
+            const response = await client.agent.get(`/habits/daily?date=${dayKey(0)}`).expect(200);
+
+            expect(response.body.data.habits[0].publishedPlanId).toBe(plan._id);
+        });
+
+        it('says which plan a habit was taken from', async () => {
+            const author = await signUp({ email: 'author@example.com' });
+            const source = await createHabit(author);
+            const plan = await publish(author, source._id);
+            await write(client, 'post', '/habits/from-plan')
+                .send({ planId: plan._id, startDate: dayKey(0) })
+                .expect(201);
+
+            const response = await client.agent.get(`/habits/daily?date=${dayKey(0)}`).expect(200);
+
+            expect(response.body.data.habits[0].fromPlanId).toBe(plan._id);
+        });
+    });
+
     describe('GET /plans', () => {
         it('is readable with no session at all', async () => {
             const habit = await createHabit(client);

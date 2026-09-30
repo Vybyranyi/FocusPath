@@ -14,6 +14,7 @@ import PublishPlanSheet from '@components/explore/PublishPlanSheet';
 import EditHabitSheet from '@components/habit/EditHabitSheet';
 import { cn } from '@/lib/utils';
 import { useToast } from '@hooks/useToast';
+import { useNavigate } from 'react-router';
 
 interface IHabitDetailPopupProps {
   habit: HabitSummary;
@@ -69,6 +70,7 @@ const CloseIcon = () => (
 export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupProps) {
   const dispatch = useAppDispatch();
   const { notify } = useToast();
+  const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -220,7 +222,11 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                        >
                          {/* Publishing lives beside deleting because this menu
                              is where things you do *to* a habit already are —
-                             and it is the only place a habit is fully in view. */}
+                             and it is the only place a habit is fully in view.
+                             A habit already published leads to its plan: the
+                             server refuses a second copy, and offering one only
+                             to refuse it after the form is filled in is worse
+                             than not offering it. */}
                          <button
                            type="button"
                            onClick={() => { setMenuOpen(false); setEditing(true); }}
@@ -229,14 +235,25 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                             <PencilIcon />
                             Edit habit
                          </button>
-                         <button
-                           type="button"
-                           onClick={() => { setMenuOpen(false); setPublishing(true); }}
-                           className="w-full text-left px-4 py-3 body-bold text-ink hover:bg-canvas transition-colors flex items-center gap-2 cursor-pointer"
-                         >
-                            <ShareIcon />
-                            Publish as a plan
-                         </button>
+                         {habit.publishedPlanId ? (
+                           <button
+                             type="button"
+                             onClick={() => { setMenuOpen(false); onClose(); navigate(`/explore/${habit.publishedPlanId}`); }}
+                             className="w-full text-left px-4 py-3 body-bold text-ink hover:bg-canvas transition-colors flex items-center gap-2 cursor-pointer"
+                           >
+                              <ShareIcon />
+                              View published plan
+                           </button>
+                         ) : (
+                           <button
+                             type="button"
+                             onClick={() => { setMenuOpen(false); setPublishing(true); }}
+                             className="w-full text-left px-4 py-3 body-bold text-ink hover:bg-canvas transition-colors flex items-center gap-2 cursor-pointer"
+                           >
+                              <ShareIcon />
+                              Publish as a plan
+                           </button>
+                         )}
                          <button
                            type="button"
                            onClick={() => { setMenuOpen(false); setConfirmingDelete(true); }}

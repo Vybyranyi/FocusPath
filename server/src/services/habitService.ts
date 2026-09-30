@@ -284,6 +284,13 @@ export const getHabitsForDate = (userId: string, date: Date) => {
                 icon: 1,
                 currentStreak: 1,
                 isCompleted: 1,
+                // The day view is where a habit is edited and published from,
+                // so it needs to know both: whether an edit takes a clone out
+                // of its plan's score, and whether this habit is published
+                // already. Without them the sheet offered to publish a habit a
+                // second time and only said no after the form was filled in.
+                fromPlanId: 1,
+                publishedPlanId: 1,
                 dayInfo: {
                     _id: '$dayInfo._id',
                     dayTitle: '$dayInfo.dayTitle',

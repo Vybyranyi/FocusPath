@@ -8,6 +8,7 @@ import {
   updateHabit,
 } from "@store/habitSlice";
 import type { Habit } from "@shared/index";
+import { publishPlan } from "@store/plansSlice";
 import { makeStore } from "@store/store";
 import type { CreateHabitFormValues } from "@/types/forms";
 import { habitState, makeHabitSummary } from "../testUtils";
@@ -354,5 +355,17 @@ describe("habitSlice", () => {
       expect(summary.currentStreak).toBe(1);
       expect(summary.completedCount).toBe(1);
     });
+  });
+
+  it("remembers that a habit has been published", async () => {
+    const store = makeStore(habitState({ habitsForDate: [makeHabitSummary()] }));
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ success: true, data: { plan: { _id: "plan-9" } } }), {
+      status: 201,
+      headers: { "Content-Type": "application/json" },
+    }));
+
+    await store.dispatch(publishPlan({ habitId: "habit-1", category: "learning" }));
+
+    expect(store.getState().habit.habitsForDate[0].publishedPlanId).toBe("plan-9");
   });
 });

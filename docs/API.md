@@ -412,6 +412,8 @@ AI-ліміт рахується по користувачу, а не по ад�
         "status": "pending",
         "completedSteps": []
       },
+      "fromPlanId": "...",
+      "publishedPlanId": "...",
       "completedCount": 18
     }
   ]

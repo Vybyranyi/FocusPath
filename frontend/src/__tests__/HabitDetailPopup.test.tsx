@@ -93,4 +93,24 @@ describe("HabitDetailPopup", () => {
 
     expect(screen.getByRole("button", { name: /edit habit/i })).toBeInTheDocument();
   });
+
+  describe("publishing", () => {
+    it("offers to publish a habit that has not been", () => {
+      open(withSteps(0));
+
+      fireEvent.click(screen.getByRole("button", { name: /habit options/i }));
+
+      expect(screen.getByRole("button", { name: /publish as a plan/i })).toBeInTheDocument();
+    });
+
+    /** The server refuses a second copy; offering one only to refuse it is worse. */
+    it("leads a published habit to its plan instead", () => {
+      open({ ...withSteps(0), publishedPlanId: "plan-9" });
+
+      fireEvent.click(screen.getByRole("button", { name: /habit options/i }));
+
+      expect(screen.queryByRole("button", { name: /publish as a plan/i })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /view published plan/i })).toBeInTheDocument();
+    });
+  });
 });

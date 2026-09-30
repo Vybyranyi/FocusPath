@@ -3,6 +3,7 @@ import type { DayStatus, Habit, HabitSummary } from "@shared/index";
 import type { CreateHabitFormValues, StepDraft } from "@/types/forms";
 import { apiRequest, errorMessage } from "@api/client";
 import { dayKeyOf, toDayKey, todayKey } from "@/lib/dates";
+import { publishPlan } from "@store/plansSlice";
 
 export interface IHabitSlice {
   /** Every habit, as `GET /habits` returns them. */
@@ -372,6 +373,19 @@ const habitSlice = createSlice({
       .addCase(renameHabitDay.fulfilled, (state, action) => {
         applyHabit(state, action.payload.habit);
       });
+
+    // A published habit is published from here on. The sheet reads this to
+    // offer the plan instead of a second publish the server would refuse.
+    builder.addCase(publishPlan.fulfilled, (state, action) => {
+      const { habitId } = action.meta.arg;
+      const planId = action.payload.plan._id;
+      state.habitsForDate
+        .filter((h) => h._id === habitId)
+        .forEach((h) => { h.publishedPlanId = planId; });
+      state.habits
+        .filter((h) => h._id === habitId)
+        .forEach((h) => { h.publishedPlanId = planId; });
+    });
 
     builder
       .addCase(deleteHabit.pending, (state) => {
