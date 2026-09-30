@@ -1,11 +1,18 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import type { User } from "@shared/index";
-import { apiRequest, errorMessage, hasSessionCookie } from "@api/client";
+import { ApiError, apiRequest, errorMessage, hasSessionCookie } from "@api/client";
 
 export interface IAuthSlice {
     user: User | null;
     loading: boolean,
     error: string | null,
+    /**
+     * The session check could not reach the server — no response, or a 5xx.
+     * Kept apart from "signed out" on purpose: treating the two alike sent a
+     * signed-in user to the login form every time the app opened offline or
+     * mid-deploy, and an installed app opened on the underground always did.
+     */
+    unreachable: boolean,
 }
 
 // No token anywhere in this slice. The session lives in httpOnly cookies the
@@ -15,6 +22,7 @@ const initialState: IAuthSlice = {
     user: null,
     loading: false,
     error: null,
+    unreachable: false,
 }
 
 interface UserResponse {
@@ -90,6 +98,9 @@ export const resetPassword = createAsyncThunk(
     },
 );
 
+/** What `fetchCurrentUser` rejects with when the server could not be reached. */
+export const SESSION_UNREACHABLE = "SESSION_UNREACHABLE";
+
 /**
  * Restores the session on load. The cookies are already in the browser, so this
  * only asks who they belong to; the client renews an expired access cookie on
@@ -110,6 +121,12 @@ export const fetchCurrentUser = createAsyncThunk(
         try {
             return await apiRequest<UserResponse>("/auth/me");
         } catch (error) {
+            // Only the server saying no — a 401 after the client's own refresh
+            // attempt — means there is no session. Not hearing from it at all
+            // says nothing about the session either way.
+            if (error instanceof ApiError && (error.status === 0 || error.status >= 500)) {
+                return rejectWithValue(SESSION_UNREACHABLE);
+            }
             return rejectWithValue(errorMessage(error));
         }
     },
@@ -227,11 +244,13 @@ const authSlice = createSlice({
             })
             .addCase(fetchCurrentUser.fulfilled, (state, action) => {
                 state.loading = false;
+                state.unreachable = false;
                 state.user = action.payload.user;
             })
-            .addCase(fetchCurrentUser.rejected, (state) => {
+            .addCase(fetchCurrentUser.rejected, (state, action) => {
                 state.loading = false;
                 state.user = null;
+                state.unreachable = action.payload === SESSION_UNREACHABLE;
                 // Not an error worth showing: arriving without a session is the
                 // normal state of a visitor who has not signed in.
                 state.error = null;
