@@ -5,7 +5,7 @@ import { Emoji } from 'react-apple-emojis';
 import { useAppDispatch } from '@store/hooks';
 import { toggleHabitStep, deleteHabit } from '@store/habitSlice';
 import { getHabitProgress } from '@/lib/habitProgress';
-import { dayKeyOf, fromDayKey, todayKey } from '@/lib/dates';
+import { dayKeyOf, dayNumberOf, fromDayKey, relativeDayLabel, todayKey } from '@/lib/dates';
 import { isDone } from '@/lib/habitStatus';
 import type { HabitSummary } from '@shared/index';
 import { format, addDays } from 'date-fns';
@@ -342,7 +342,12 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                         : 'bg-canvas border-line',
                     )}
                 >
-                    <p className={cn('chip mb-2', isDone(habit.dayInfo) ? 'text-success' : 'text-ink-muted')}>Today</p>
+                    {/* The day on screen, which is only sometimes today: the
+                        sheet opens from whichever day is selected, and this
+                        tile said "Today" for all of them. */}
+                    <p className={cn('chip mb-2', isDone(habit.dayInfo) ? 'text-success' : 'text-ink-muted')}>
+                      {relativeDayLabel(dayKeyOf(habit.dayInfo.date))}
+                    </p>
                     {isDone(habit.dayInfo) ? (
                          <span className="flex flex-col items-center gap-1 text-success">
                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -352,7 +357,7 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                          </span>
                     ) : (
                         <p className="title text-ink-2 text-center leading-tight">
-                           {habit.dayInfo.dayTitle || `Day ${habit.currentStreak}`}
+                           {habit.dayInfo.dayTitle || `Day ${dayNumberOf(habit.startDate, habit.dayInfo.date)}`}
                         </p>
                     )}
                 </div>

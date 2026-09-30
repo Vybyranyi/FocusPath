@@ -1,4 +1,4 @@
-import { format, parse } from "date-fns";
+import { addDays, differenceInCalendarDays, format, parse } from "date-fns";
 
 /**
  * The client half of the date contract, mirroring `server/src/utils/dates.ts`.
@@ -37,3 +37,22 @@ export const todayKey = (): string => toDayKey(new Date());
  */
 export const isBeforeDay = (key: string, other: string): boolean => key < other;
 export const isAfterDay = (key: string, other: string): boolean => key > other;
+
+/**
+ * Which day of a plan a day is, counting the first as 1.
+ *
+ * Two places used to fill in for a missing day title with `Day ${streak}` —
+ * the streak, which is 0 on a fresh habit and resets on a slip, so a card could
+ * say "Day 0" on day twelve.
+ */
+export const dayNumberOf = (startDate: string, date: string): number =>
+  differenceInCalendarDays(fromDayKey(dayKeyOf(date)), fromDayKey(dayKeyOf(startDate))) + 1;
+
+/** "Today", "Yesterday", "Tomorrow", or the day itself, for a label. */
+export const relativeDayLabel = (key: string, today: string = todayKey()): string => {
+  const base = fromDayKey(today);
+  if (key === today) return "Today";
+  if (key === toDayKey(addDays(base, -1))) return "Yesterday";
+  if (key === toDayKey(addDays(base, 1))) return "Tomorrow";
+  return format(fromDayKey(key), "EEE, MMM d");
+};

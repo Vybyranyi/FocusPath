@@ -5,7 +5,7 @@ import type { DayStatus, HabitSummary } from '@shared/index';
 import { markHabitCompletion } from '@store/habitSlice';
 import { useAppDispatch } from '@store/hooks';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { dayKeyOf, todayKey } from '@/lib/dates';
+import { dayKeyOf, dayNumberOf, todayKey } from '@/lib/dates';
 import { dayState, type DayState } from '@/lib/habitStatus';
 import { getHabitProgress } from '@/lib/habitProgress';
 import HabitDetailPopup from '@components/habit/HabitDetailPopup';
@@ -152,7 +152,7 @@ function HabitCard({ habit }: IHabitCardProps) {
             <span className="min-w-0">
               <span className="body-bold block truncate">{habit.title}</span>
               <span className="alternative block text-ink-muted truncate">
-                {habit.dayInfo.dayTitle || `Day ${habit.currentStreak}`}
+                {habit.dayInfo.dayTitle || `Day ${dayNumberOf(habit.startDate, habit.dayInfo.date)}`}
               </span>
             </span>
             {style && (

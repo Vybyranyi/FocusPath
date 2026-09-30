@@ -113,4 +113,27 @@ describe("HabitDetailPopup", () => {
       expect(screen.getByRole("button", { name: /view published plan/i })).toBeInTheDocument();
     });
   });
+
+  describe("the day tile", () => {
+    /** The sheet opens from whichever day is selected; the tile said "Today" for all. */
+    it("names the day on screen", () => {
+      open(withSteps(-1));
+
+      expect(screen.getByText("Yesterday")).toBeInTheDocument();
+      expect(screen.queryByText("Today")).not.toBeInTheDocument();
+    });
+
+    /** It used the streak, which is 0 on a fresh habit and resets on a slip. */
+    it("falls back to the day's place in the plan, not the streak", () => {
+      open(
+        makeHabitSummary({
+          startDate: dayFromToday(-11),
+          currentStreak: 0,
+          dayInfo: { _id: "d", dayTitle: "", date: dayFromToday(0), status: "pending", completedSteps: [] },
+        }),
+      );
+
+      expect(screen.getByText("Day 12")).toBeInTheDocument();
+    });
+  });
 });

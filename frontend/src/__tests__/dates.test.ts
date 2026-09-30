@@ -1,5 +1,14 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { dayKeyOf, fromDayKey, isAfterDay, isBeforeDay, toDayKey, todayKey } from "@/lib/dates";
+import {
+  dayKeyOf,
+  dayNumberOf,
+  fromDayKey,
+  isAfterDay,
+  isBeforeDay,
+  relativeDayLabel,
+  toDayKey,
+  todayKey,
+} from "@/lib/dates";
 
 const SUITE_TZ = process.env.TZ;
 
@@ -96,5 +105,32 @@ describe("todayKey", () => {
     inZone(zone, () => {
       expect(todayKey()).toBe(toDayKey(new Date()));
     });
+  });
+});
+
+describe("dayNumberOf", () => {
+  it("counts the first day of a plan as day 1", () => {
+    expect(dayNumberOf("2026-03-01T00:00:00.000Z", "2026-03-01T00:00:00.000Z")).toBe(1);
+  });
+
+  it("counts across a month boundary", () => {
+    expect(dayNumberOf("2026-02-27T00:00:00.000Z", "2026-03-02T00:00:00.000Z")).toBe(4);
+  });
+
+  /** Midnight UTC read with local getters would move it a day west of Greenwich. */
+  it("reads server dates by their day key, not as local instants", () => {
+    expect(dayNumberOf("2026-10-25T00:00:00.000Z", "2026-10-26T00:00:00.000Z")).toBe(2);
+  });
+});
+
+describe("relativeDayLabel", () => {
+  it("names today, yesterday and tomorrow", () => {
+    expect(relativeDayLabel("2026-09-30", "2026-09-30")).toBe("Today");
+    expect(relativeDayLabel("2026-09-29", "2026-09-30")).toBe("Yesterday");
+    expect(relativeDayLabel("2026-10-01", "2026-09-30")).toBe("Tomorrow");
+  });
+
+  it("names any other day by its date", () => {
+    expect(relativeDayLabel("2026-09-25", "2026-09-30")).toBe("Fri, Sep 25");
   });
 });
