@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  createAIHabit,
   createHabit,
   getHabitsForDate,
   markHabitCompletion,
@@ -44,7 +45,7 @@ const formValues = (overrides: Partial<CreateHabitFormValues> = {}): CreateHabit
   steps: [],
   // Local midnight, which is what the date pickers hand back.
   startDate: new Date(2026, 7, 7),
-  aiEnabled: false,
+  autoDuration: false,
   duration: "7",
   habitType: "build",
   ...overrides,
@@ -261,6 +262,24 @@ describe("habitSlice", () => {
 
       expect(urlAt(0)).toContain("/habits/habit-1/day");
       expect(bodyAt(0)).toEqual({ date: "2025-01-07", dayTitle: "Twenty pages" });
+    });
+  });
+
+  describe("the length an AI habit asks for", () => {
+    it("lets the AI choose when the switch says so", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: {} }));
+
+      await makeStore().dispatch(createAIHabit(formValues({ autoDuration: true, duration: "" })));
+
+      expect(bodyAt(0).duration).toBeNull();
+    });
+
+    it("asks for the days the user typed when it does not", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: {} }));
+
+      await makeStore().dispatch(createAIHabit(formValues({ autoDuration: false, duration: "30" })));
+
+      expect(bodyAt(0).duration).toBe(30);
     });
   });
 

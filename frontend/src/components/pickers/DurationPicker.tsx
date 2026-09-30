@@ -3,7 +3,8 @@ import Switch from "@components/ui/Switch";
 import { cn } from "@/lib/utils";
 
 export interface IDurationPickerProps {
-  aiEnabled: boolean;
+  /** The AI picks the length; the days field is hidden and nothing typed is sent. */
+  autoDuration: boolean;
   duration: string;
   onAiToggle: () => void;
   onDurationChange: (event: React.ChangeEvent<HTMLInputElement>) => void;
@@ -13,7 +14,7 @@ export interface IDurationPickerProps {
 }
 
 export default function DurationPicker({
-  aiEnabled,
+  autoDuration,
   duration,
   onAiToggle,
   onDurationChange,
@@ -32,13 +33,13 @@ export default function DurationPicker({
           </p>
           <Switch
             label="Let AI choose the number of days"
-            toggled={aiEnabled}
+            toggled={autoDuration}
             onClick={onAiToggle}
             disabled={disabled}
           />
         </div>
 
-        {!aiEnabled && (
+        {!autoDuration && (
           <input
             type="number"
             min="1"

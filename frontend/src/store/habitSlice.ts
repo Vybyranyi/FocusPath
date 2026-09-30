@@ -44,7 +44,7 @@ const toHabitBody = (values: CreateHabitFormValues, allowAutoDuration = false) =
   // previous day east of Greenwich, which either shifted the whole schedule or
   // got the habit refused for starting "in the past".
   startDate: values.startDate ? toDayKey(values.startDate) : todayKey(),
-  duration: allowAutoDuration && !values.duration ? null : Number(values.duration),
+  duration: allowAutoDuration && values.autoDuration ? null : Number(values.duration),
   type: values.habitType,
   color: values.color,
   icon: values.emoji,

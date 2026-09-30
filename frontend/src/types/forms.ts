@@ -31,7 +31,11 @@ export interface CreateHabitFormValues {
   /** The daily checklist, one row per step. Blank rows are dropped on submit. */
   steps: StepDraft[];
   startDate: Date | undefined;
-  aiEnabled: boolean;
+  /**
+   * The "let AI choose the number of days" switch — nothing more. Which
+   * button submitted the form is not form state.
+   */
+  autoDuration: boolean;
   duration: string;
   habitType: HabitType;
 }
