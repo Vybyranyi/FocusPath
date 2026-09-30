@@ -9,7 +9,7 @@ import {
   updateHabit,
 } from "@store/habitSlice";
 import type { Habit } from "@shared/index";
-import { publishPlan } from "@store/plansSlice";
+import { publishPlan, unpublishPlan } from "@store/plansSlice";
 import { makeStore } from "@store/store";
 import type { CreateHabitFormValues } from "@/types/forms";
 import { habitState, makeHabitSummary } from "../testUtils";
@@ -386,5 +386,14 @@ describe("habitSlice", () => {
     await store.dispatch(publishPlan({ habitId: "habit-1", category: "learning" }));
 
     expect(store.getState().habit.habitsForDate[0].publishedPlanId).toBe("plan-9");
+  });
+
+  it("frees a habit to be published again once its plan is withdrawn", async () => {
+    const store = makeStore(habitState({ habitsForDate: [makeHabitSummary({ publishedPlanId: "plan-9" })] }));
+    fetchMock.mockResolvedValue(ok({ plan: { _id: "plan-9" } }));
+
+    await store.dispatch(unpublishPlan("plan-9"));
+
+    expect(store.getState().habit.habitsForDate[0].publishedPlanId).toBeUndefined();
   });
 });

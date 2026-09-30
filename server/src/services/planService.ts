@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Plan, { MIN_CLONES_FOR_RATE, type IPlan } from '@models/Plan';
 import Report, { type IReport } from '@models/Report';
 import User from '@models/User';
+import Habit from '@models/Habit';
 import {
     ConflictError,
     ContentRejectedError,
@@ -339,6 +340,16 @@ export const unpublishPlan = async (userId: string, planId: string): Promise<IPl
 
     plan.status = 'unpublished';
     await plan.save();
+
+    // The habit is free to be published again. Keeping the link made a
+    // withdrawal permanent — the server refuses a second publication of a
+    // habit that has one — and left the habit's menu pointing at a plan the
+    // library no longer serves. Only a link still naming this plan is cleared,
+    // and only here: a plan a moderator removed does not come back this way.
+    await Habit.updateOne(
+        { _id: plan.sourceHabitId, publishedPlanId: plan._id },
+        { $unset: { publishedPlanId: '' } },
+    );
 
     return plan;
 };

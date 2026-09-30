@@ -3,7 +3,7 @@ import type { DayStatus, Habit, HabitSummary } from "@shared/index";
 import type { CreateHabitFormValues, StepDraft } from "@/types/forms";
 import { apiRequest, errorMessage } from "@api/client";
 import { dayKeyOf, toDayKey, todayKey } from "@/lib/dates";
-import { publishPlan } from "@store/plansSlice";
+import { publishPlan, unpublishPlan } from "@store/plansSlice";
 
 export interface IHabitSlice {
   /** Every habit, as `GET /habits` returns them. */
@@ -385,6 +385,14 @@ const habitSlice = createSlice({
       state.habits
         .filter((h) => h._id === habitId)
         .forEach((h) => { h.publishedPlanId = planId; });
+    });
+
+    // Withdrawn, the habit may be published again, as the server now allows.
+    builder.addCase(unpublishPlan.fulfilled, (state, action) => {
+      const planId = action.payload;
+      [...state.habitsForDate, ...state.habits]
+        .filter((h) => h.publishedPlanId === planId)
+        .forEach((h) => { delete h.publishedPlanId; });
     });
 
     builder

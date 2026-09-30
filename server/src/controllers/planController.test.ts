@@ -480,6 +480,27 @@ describe('Plan Controller', () => {
 
             await write(client, 'delete', `/plans/${plan._id}`).expect(404);
         });
+
+        /** Withdrawing used to be for good: the habit kept a link to a plan no one could see. */
+        it('lets the habit be published again', async () => {
+            const habit = await createHabit(client);
+            const first = await publish(client, habit._id);
+            await write(client, 'delete', `/plans/${first._id}`).expect(200);
+
+            const stored = await client.agent.get(`/habits/${habit._id}`).expect(200);
+            expect(stored.body.data.habit).not.toHaveProperty('publishedPlanId');
+
+            const second = await publish(client, habit._id);
+            expect(second._id).not.toBe(first._id);
+        });
+
+        it('does not free a habit whose plan a moderator removed', async () => {
+            const habit = await createHabit(client);
+            const plan = await publish(client, habit._id);
+            await Plan.updateOne({ _id: plan._id }, { $set: { status: 'removed' } });
+
+            await write(client, 'post', '/plans').send({ habitId: habit._id, category: 'learning' }).expect(409);
+        });
     });
 
     describe('POST /plans/:id/report', () => {
