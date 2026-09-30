@@ -11,6 +11,7 @@ import type { HabitSummary } from '@shared/index';
 import { format, addDays } from 'date-fns';
 import Button from '@components/ui/Button';
 import PublishPlanSheet from '@components/explore/PublishPlanSheet';
+import EditHabitSheet from '@components/habit/EditHabitSheet';
 import { cn } from '@/lib/utils';
 import { useToast } from '@hooks/useToast';
 
@@ -32,6 +33,13 @@ const ShareIcon = () => (
     <path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7" />
     <polyline points="16 6 12 2 8 6" />
     <line x1="12" y1="2" x2="12" y2="15" />
+  </svg>
+);
+
+const PencilIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
   </svg>
 );
 
@@ -64,6 +72,7 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   /**
    * Radix hands focus back to its own `Dialog.Trigger`. This sheet is mounted
@@ -115,7 +124,7 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
      * it. Two stacked sheets meant two overlays, two blurs and a card the user
      * could see but not reach; cancelling brings this one straight back.
      */
-    <Dialog.Root open={!publishing} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Dialog.Root open={!publishing && !editing} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay asChild>
           <motion.div
@@ -206,6 +215,14 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                          {/* Publishing lives beside deleting because this menu
                              is where things you do *to* a habit already are —
                              and it is the only place a habit is fully in view. */}
+                         <button
+                           type="button"
+                           onClick={() => { setMenuOpen(false); setEditing(true); }}
+                           className="w-full text-left px-4 py-3 body-bold text-ink hover:bg-canvas transition-colors flex items-center gap-2 cursor-pointer"
+                         >
+                            <PencilIcon />
+                            Edit habit
+                         </button>
                          <button
                            type="button"
                            onClick={() => { setMenuOpen(false); setPublishing(true); }}
@@ -362,6 +379,12 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
           </motion.div>
         </Dialog.Content>
       </Dialog.Portal>
+
+      {/* Mounted only while open, so every edit starts from the habit as it is
+          now rather than from whatever was typed and abandoned last time. */}
+      {editing && (
+        <EditHabitSheet habit={habit} open={editing} onOpenChange={setEditing} />
+      )}
 
       <PublishPlanSheet
         habit={habit}

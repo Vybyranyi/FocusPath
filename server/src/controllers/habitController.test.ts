@@ -408,6 +408,21 @@ describe('Habit Controller', () => {
             expect(response.body.data.habit.dailyCompletions[1].status).toBe('done');
         });
 
+        it('carries a rename into the days still titled after the habit', async () => {
+            const habit = await createHabit(client, { duration: 3 });
+            await write(client, 'patch', `/habits/${habit._id}/day`)
+                .send({ date: dayKey(1), dayTitle: 'Read one chapter' })
+                .expect(200);
+
+            const response = await update(habit._id, { title: 'Read every evening' });
+
+            const titles = response.body.data.habit.dailyCompletions.map(
+                (day: { dayTitle: string }) => day.dayTitle,
+            );
+            // The two defaulted days follow the rename; the one written by hand stays.
+            expect(titles).toEqual(['Read every evening', 'Read one chapter', 'Read every evening']);
+        });
+
         it('refuses an update that changes nothing', async () => {
             const habit = await createHabit(client);
 

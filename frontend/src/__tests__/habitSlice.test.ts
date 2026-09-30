@@ -3,7 +3,10 @@ import {
   createHabit,
   getHabitsForDate,
   markHabitCompletion,
+  renameHabitDay,
+  updateHabit,
 } from "@store/habitSlice";
+import type { Habit } from "@shared/index";
 import { makeStore } from "@store/store";
 import type { CreateHabitFormValues } from "@/types/forms";
 import { habitState, makeHabitSummary } from "../testUtils";
@@ -145,6 +148,115 @@ describe("habitSlice", () => {
       );
 
       expect(store.getState().habit.habitsForDate[0].completedCount).toBe(2);
+    });
+  });
+
+  describe("editing a habit", () => {
+    /** The full habit the server answers an edit with. */
+    const fullHabit = (overrides: Partial<Habit> = {}): Habit => ({
+      _id: "habit-1",
+      title: "Read",
+      startDate: "2025-01-06T00:00:00.000Z",
+      type: "build",
+      color: "blue",
+      icon: "books",
+      currentStreak: 0,
+      isCompleted: false,
+      duration: 3,
+      dailyCompletions: [
+        { _id: "d1", dayTitle: "Read", date: "2025-01-06T00:00:00.000Z", status: "done" },
+        { _id: "d2", dayTitle: "Read", date: "2025-01-07T00:00:00.000Z", status: "done" },
+        { _id: "d3", dayTitle: "Read", date: "2025-01-08T00:00:00.000Z", status: "pending" },
+      ],
+      createdAt: "2025-01-01T00:00:00.000Z",
+      updatedAt: "2025-01-01T00:00:00.000Z",
+      ...overrides,
+    });
+
+    it("sends only the fields it was given", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: fullHabit() }));
+
+      await makeStore().dispatch(
+        updateHabit({ habitId: "habit-1", changes: { title: "Read more" } }),
+      );
+
+      expect(urlAt(0)).toContain("/habits/habit-1");
+      expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("PUT");
+      expect(bodyAt(0)).toEqual({ title: "Read more" });
+    });
+
+    it("rebuilds the selected day from the schedule the server returned", async () => {
+      const store = makeStore(
+        habitState({
+          habitsForDate: [
+            makeHabitSummary({
+              dayInfo: { _id: "d2", dayTitle: "Read", date: "2025-01-07T00:00:00.000Z", status: "done" },
+            }),
+          ],
+          habits: [fullHabit()],
+        }),
+      );
+      fetchMock.mockResolvedValue(
+        ok({
+          habit: fullHabit({
+            title: "Read more",
+            dailyCompletions: fullHabit().dailyCompletions.map((day) => ({ ...day, dayTitle: "Read more" })),
+          }),
+        }),
+      );
+
+      await store.dispatch(updateHabit({ habitId: "habit-1", changes: { title: "Read more" } }));
+
+      const summary = store.getState().habit.habitsForDate[0];
+      expect(summary.title).toBe("Read more");
+      expect(summary.dayInfo.dayTitle).toBe("Read more");
+      expect(summary.completedCount).toBe(2);
+      expect(store.getState().habit.habits[0].title).toBe("Read more");
+    });
+
+    it("drops the habit from a day the new length no longer covers", async () => {
+      const store = makeStore(
+        habitState({
+          habitsForDate: [
+            makeHabitSummary({
+              dayInfo: { _id: "d3", dayTitle: "Read", date: "2025-01-08T00:00:00.000Z", status: "pending" },
+            }),
+          ],
+        }),
+      );
+      fetchMock.mockResolvedValue(
+        ok({ habit: fullHabit({ duration: 2, dailyCompletions: fullHabit().dailyCompletions.slice(0, 2) }) }),
+      );
+
+      await store.dispatch(updateHabit({ habitId: "habit-1", changes: { duration: 2 } }));
+
+      expect(store.getState().habit.habitsForDate).toHaveLength(0);
+    });
+
+    it("leaves the day view standing when an edit is refused", async () => {
+      const store = makeStore(habitState({ habitsForDate: [makeHabitSummary()] }));
+      fetchMock.mockResolvedValue(
+        new Response(
+          JSON.stringify({ success: false, error: { code: "VALIDATION_ERROR", message: "Nope" } }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+      await store.dispatch(updateHabit({ habitId: "habit-1", changes: { title: "x" } }));
+
+      expect(store.getState().habit.error).toBeNull();
+      expect(store.getState().habit.habitsForDate).toHaveLength(1);
+    });
+
+    it("renames one day by its day key", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: fullHabit() }));
+
+      await makeStore().dispatch(
+        renameHabitDay({ habitId: "habit-1", date: "2025-01-07T00:00:00.000Z", dayTitle: "Twenty pages" }),
+      );
+
+      expect(urlAt(0)).toContain("/habits/habit-1/day");
+      expect(bodyAt(0)).toEqual({ date: "2025-01-07", dayTitle: "Twenty pages" });
     });
   });
 });

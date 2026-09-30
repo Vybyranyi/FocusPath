@@ -278,7 +278,17 @@ export const updateHabit = async (
 
     const { title, description, category, steps, startDate, duration, type, color, icon } = changes;
 
-    if (title) habit.title = title;
+    // A day with no task of its own is titled after the habit when the schedule
+    // is built. Renaming the habit alone left every one of those days showing
+    // the old name as the day's task, on every card, for the rest of the run.
+    // Days the user or the AI actually wrote are left as they are.
+    if (title && title !== habit.title) {
+        const previousTitle = habit.title;
+        habit.dailyCompletions.forEach(day => {
+            if (day.dayTitle === previousTitle) day.dayTitle = title;
+        });
+        habit.title = title;
+    }
     if (description !== undefined) habit.description = description;
     if (category !== undefined) habit.category = category;
     if (steps) habit.steps = steps;

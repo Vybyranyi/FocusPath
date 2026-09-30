@@ -136,6 +136,51 @@ export const toggleHabitStep = createAsyncThunk(
   },
 );
 
+/** The fields the edit sheet may change. Rescheduling is the server's job. */
+export interface HabitChanges {
+  title?: string;
+  description?: string;
+  category?: string;
+  color?: string;
+  icon?: string;
+  duration?: number;
+}
+
+export const updateHabit = createAsyncThunk(
+  "habit/updateHabit",
+  async (
+    { habitId, changes }: { habitId: string; changes: HabitChanges },
+    { rejectWithValue },
+  ) => {
+    try {
+      return await apiRequest<{ habit: Habit }>(`/habits/${habitId}`, {
+        method: "PUT",
+        body: changes,
+      });
+    } catch (error) {
+      return rejectWithValue(errorMessage(error));
+    }
+  },
+);
+
+/** Rewrites the task of one day. `date` is a day the server named. */
+export const renameHabitDay = createAsyncThunk(
+  "habit/renameHabitDay",
+  async (
+    { habitId, date, dayTitle }: { habitId: string; date: string; dayTitle: string },
+    { rejectWithValue },
+  ) => {
+    try {
+      return await apiRequest<{ habit: Habit }>(`/habits/${habitId}/day`, {
+        method: "PATCH",
+        body: { date: dayKeyOf(date), dayTitle },
+      });
+    } catch (error) {
+      return rejectWithValue(errorMessage(error));
+    }
+  },
+);
+
 export const deleteHabit = createAsyncThunk(
   "habit/deleteHabit",
   async (habitId: string, { rejectWithValue }) => {
@@ -149,6 +194,51 @@ export const deleteHabit = createAsyncThunk(
     }
   },
 );
+
+/**
+ * Folds a habit the server just returned in full back into both lists.
+ *
+ * The day view holds a narrowed copy, so it is rebuilt from the full schedule
+ * rather than patched field by field: an edit can rename the day, move its
+ * status or — when the habit is shortened — take the selected day out of the
+ * schedule altogether, in which case the habit leaves that day's list.
+ */
+const applyHabit = (state: IHabitSlice, habit: Habit) => {
+  const fullIndex = state.habits.findIndex((h) => h._id === habit._id);
+  if (fullIndex !== -1) state.habits[fullIndex] = habit;
+
+  const summaryIndex = state.habitsForDate.findIndex((h) => h._id === habit._id);
+  if (summaryIndex === -1) return;
+
+  const summary = state.habitsForDate[summaryIndex];
+  const day = habit.dailyCompletions.find(
+    (entry) => dayKeyOf(entry.date) === dayKeyOf(summary.dayInfo.date),
+  );
+
+  if (!day) {
+    state.habitsForDate.splice(summaryIndex, 1);
+    return;
+  }
+
+  state.habitsForDate[summaryIndex] = {
+    _id: habit._id,
+    title: habit.title,
+    description: habit.description,
+    category: habit.category,
+    steps: habit.steps,
+    startDate: habit.startDate,
+    duration: habit.duration,
+    type: habit.type,
+    color: habit.color,
+    icon: habit.icon,
+    currentStreak: habit.currentStreak,
+    isCompleted: habit.isCompleted,
+    fromPlanId: habit.fromPlanId,
+    publishedPlanId: habit.publishedPlanId,
+    dayInfo: day,
+    completedCount: habit.dailyCompletions.filter((entry) => entry.status === "done").length,
+  };
+};
 
 const habitSlice = createSlice({
   name: "habit",
@@ -265,6 +355,17 @@ const habitSlice = createSlice({
         if (step) {
           step.completed = !step.completed;
         }
+      });
+
+    // Failures are left to the sheet that asked, which shows them beside the
+    // form. The slice-wide `error` is what the day view renders *instead of*
+    // the list, so a rejected rename would have blanked every habit on screen.
+    builder
+      .addCase(updateHabit.fulfilled, (state, action) => {
+        applyHabit(state, action.payload.habit);
+      })
+      .addCase(renameHabitDay.fulfilled, (state, action) => {
+        applyHabit(state, action.payload.habit);
       });
 
     builder
