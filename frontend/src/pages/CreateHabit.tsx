@@ -19,11 +19,14 @@ import type { CreateHabitFormValues } from "@/types/forms";
 const validationSchema = Yup.object({
   color: Yup.string().required("Color is required"),
   emoji: Yup.string().required("Emoji is required"),
-  habitName: Yup.string().min(5).max(20).required("Habit name is required"),
-  habitDescription: Yup.string()
-    .min(10)
-    .max(100)
-    .required("Habit description is required"),
+  // The server's own limits. The form asked for 5–20 characters, so "Read",
+  // "Run" and "Yoga" were refused before they were ever sent, and a
+  // description the API treats as optional was demanded at ten characters.
+  habitName: Yup.string()
+    .trim()
+    .max(100, "Must be 100 characters or fewer")
+    .required("Habit name is required"),
+  habitDescription: Yup.string().trim().max(500, "Must be 500 characters or fewer"),
   startDate: Yup.date()
     .nullable()
     .required("Start date is required")
@@ -138,7 +141,7 @@ export default function CreateHabit() {
                     error={touched.habitName ? errors.habitName : ""}
                   />
                   <Input
-                    label="Habit description"
+                    label="Habit description (optional)"
                     placeholder="Describe your habit"
                     type="text"
                     value={values.habitDescription}
