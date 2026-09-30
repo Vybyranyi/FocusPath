@@ -1,3 +1,6 @@
+import type { Habit } from "./habit";
+import type { Plan } from "./plan";
+
 export type Gender = "male" | "female";
 
 /**
@@ -34,4 +37,16 @@ export interface User {
     displayName?: string;
     createdAt: string;
     updatedAt: string;
+}
+
+/**
+ * Everything an account holds, as `GET /auth/export` returns it: the profile,
+ * every habit with its full history, and every plan it published.
+ */
+export interface AccountExport {
+    /** ISO 8601 timestamp of when the export was made. */
+    exportedAt: string;
+    user: User;
+    habits: Habit[];
+    plans: Plan[];
 }

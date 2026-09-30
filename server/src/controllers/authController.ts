@@ -83,3 +83,6 @@ export const resetPassword = async (req: TypedRequest<ResetPasswordDto>, res: Re
 
     return ok(res, { user: session.user });
 };
+
+export const exportAccount = async (req: Request, res: Response) =>
+    ok(res, await authService.exportAccount(req.userId));

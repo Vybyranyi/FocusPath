@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
     changePassword,
     deleteAccount,
+    exportAccount,
     forgotPassword,
     login,
     logout,
@@ -41,6 +42,7 @@ router.post('/refresh', refresh);
 router.post('/logout', logout);
 
 router.get('/me', verifyTokenMiddleware, me);
+router.get('/export', verifyTokenMiddleware, exportAccount);
 router.patch('/profile', verifyTokenMiddleware, validate({ body: updateProfileSchema }), updateProfile);
 router.patch('/password', verifyTokenMiddleware, validate({ body: changePasswordSchema }), changePassword);
 router.delete('/account', verifyTokenMiddleware, validate({ body: deleteAccountSchema }), deleteAccount);

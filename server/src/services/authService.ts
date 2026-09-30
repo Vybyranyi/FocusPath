@@ -244,6 +244,24 @@ export const changePassword = async (
     return startSession(user);
 };
 
+/**
+ * Everything the account holds, in one document the person can keep.
+ *
+ * Deleting an account removes all of it, and until now there was no way to
+ * take any of it along first — months of history could be kept only by not
+ * leaving. The same `toJSON` that shapes every response shapes this, so
+ * nothing is exported that the account's own screens would not show.
+ */
+export const exportAccount = async (userId: string | undefined) => {
+    const user = await requireUser(userId);
+    const [habits, plans] = await Promise.all([
+        Habit.find({ userId }).sort({ createdAt: 1 }),
+        Plan.find({ 'author.userId': userId }).sort({ createdAt: 1 }),
+    ]);
+
+    return { exportedAt: new Date().toISOString(), user, habits, plans };
+};
+
 /** How long a reset link works. Long enough to find the mail, short enough to go stale. */
 export const RESET_TTL_MS = 30 * 60 * 1000;
 
