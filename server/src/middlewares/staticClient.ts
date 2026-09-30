@@ -20,8 +20,15 @@ export const DEFAULT_CLIENT_DIST = process.env.CLIENT_DIST
     ? path.resolve(process.env.CLIENT_DIST)
     : path.resolve(__dirname, '../../../frontend/dist');
 
-/** Prefixes the API owns. A request to one of these never gets the SPA shell. */
-const API_PREFIXES = ['/auth', '/habits'];
+/**
+ * Prefixes the API owns. A request to one of these never gets the SPA shell.
+ *
+ * Every router mounted in `app.ts` belongs here. `/plans` was mounted with the
+ * plan library and left off this list, so a mistyped plan endpoint asked for
+ * with `Accept: text/html` came back as the app's HTML instead of the 404 it
+ * was. `/explore`, the library's page, is a client route and is not listed.
+ */
+export const API_PREFIXES = ['/auth', '/habits', '/plans', '/healthz'];
 
 const isApiPath = (pathname: string): boolean =>
     API_PREFIXES.some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`));

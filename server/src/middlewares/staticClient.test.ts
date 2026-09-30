@@ -180,6 +180,21 @@ describe('serving the client', () => {
             expect(response.body.error.code).toBe('NOT_FOUND');
         });
 
+        it.each(['/plans/not-a-route/at-all', '/auth/not-a-route', '/healthz/extra'])(
+            'keeps %s an API path even when HTML is asked for',
+            async (apiPath) => {
+                const response = await request(app).get(apiPath).set('Accept', 'text/html').expect(404);
+
+                expect(response.body.error.code).toBe('NOT_FOUND');
+            },
+        );
+
+        it('still serves the library page itself as the app', async () => {
+            const response = await request(app).get('/explore/abc').set('Accept', 'text/html').expect(200);
+
+            expect(response.text).toContain('FocusPath');
+        });
+
         it('does not treat a lookalike prefix as an API path', async () => {
             const response = await request(app)
                 .get('/authentication-guide')
