@@ -8,7 +8,13 @@
     <meta name="description" content="Track the habits you are building and the ones you are quitting, one day at a time." />
 
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="apple-touch-icon" href="/favicon.svg" />
+    <!-- PNG, not the SVG it replaces: iOS ignores an SVG touch icon and puts a
+         screenshot of the page on the home screen instead. -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="FocusPath" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
 
     <!-- The app ships both themes, so let the browser paint its own chrome to
          match instead of assuming light. -->
@@ -22,22 +28,10 @@
           href="/src/assets/fonts/Montserrat-Regular.woff2" />
     <link rel="preload" as="font" type="font/woff2" crossorigin
           href="/src/assets/fonts/Montserrat-Medium.woff2" />
-    <!-- Applies the saved theme before the first paint. React loads too late:
-         without this the page renders in the device theme and then swaps once
-         the app hydrates, which is a visible flash of the wrong colours on
-         every load. Kept tiny and dependency-free on purpose. -->
-    <script>
-      (function () {
-        try {
-          var choice = localStorage.getItem('focuspath:theme');
-          if (choice === 'light' || choice === 'dark') {
-            document.documentElement.setAttribute('data-theme', choice);
-          }
-        } catch (e) {
-          /* Private browsing can throw on access; the device theme applies. */
-        }
-      })();
-    </script>
+    <!-- Applies the saved theme before the first paint. A classic, blocking
+         script on purpose, and a file rather than inline: the CSP refuses
+         inline scripts, so the inline version never ran in production. -->
+    <script src="/theme-init.js"></script>
   </head>
   <body>
     <div id="root"></div>

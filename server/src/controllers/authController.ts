@@ -7,8 +7,10 @@ import type { TypedRequest } from '@middlewares/validate';
 import type {
     ChangePasswordDto,
     DeleteAccountDto,
+    ForgotPasswordDto,
     LoginDto,
     RegisterDto,
+    ResetPasswordDto,
     UpdateProfileDto,
 } from '@validation/authSchemas';
 
@@ -65,3 +67,22 @@ export const deleteAccount = async (req: TypedRequest<DeleteAccountDto>, res: Re
 
     return ok(res, null);
 };
+
+/** Always the same answer, so it cannot say whether an address has an account. */
+export const forgotPassword = async (req: TypedRequest<ForgotPasswordDto>, res: Response) => {
+    await authService.requestPasswordReset(req.body);
+
+    return ok(res, null);
+};
+
+export const resetPassword = async (req: TypedRequest<ResetPasswordDto>, res: Response) => {
+    const session = await authService.resetPassword(req.body);
+    // Signed straight in: having just proved control of the inbox, being sent
+    // to a login form to type the new password again is only friction.
+    issueSession(res, { ...session, userId: session.user.id });
+
+    return ok(res, { user: session.user });
+};
+
+export const exportAccount = async (req: Request, res: Response) =>
+    ok(res, await authService.exportAccount(req.userId));

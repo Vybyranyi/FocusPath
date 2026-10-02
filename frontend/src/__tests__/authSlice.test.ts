@@ -13,6 +13,7 @@ const initialState: IAuthSlice = {
   user: null,
   loading: false,
   error: null,
+  unreachable: false,
 };
 
 const mockUser = {
@@ -26,7 +27,7 @@ const mockUser = {
   updatedAt: "2020",
 };
 
-const signedIn: IAuthSlice = { user: mockUser, loading: false, error: null };
+const signedIn: IAuthSlice = { user: mockUser, loading: false, error: null, unreachable: false };
 
 describe("authSlice", () => {
   it("starts with nobody signed in", () => {
@@ -199,5 +200,56 @@ describe("restoring a session on load", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0][0])).toContain("/auth/me");
     expect(store.getState().auth.user).toEqual(mockUser);
+  });
+
+  /**
+   * Treating "could not reach the server" as "signed out" sent a signed-in user
+   * to the login form whenever the app opened offline or mid-deploy.
+   */
+  describe("a session check that cannot reach the server", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    const checkWith = async (fetchImpl: () => Promise<Response>) => {
+      document.cookie = "csrf_token=token; path=/";
+      vi.stubGlobal("fetch", vi.fn(fetchImpl));
+      const store = makeStore();
+      await store.dispatch(fetchCurrentUser());
+      return store.getState().auth;
+    };
+
+    it("is not mistaken for being signed out when there is no network", async () => {
+      const auth = await checkWith(() => Promise.reject(new TypeError("Failed to fetch")));
+
+      expect(auth.unreachable).toBe(true);
+    });
+
+    it("is not mistaken for being signed out when the server errors", async () => {
+      const auth = await checkWith(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ success: false, error: { code: "INTERNAL_ERROR", message: "x" } }), {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+
+      expect(auth.unreachable).toBe(true);
+    });
+
+    it("still means signed out when the server says so", async () => {
+      const auth = await checkWith(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ success: false, error: { code: "UNAUTHORIZED", message: "No" } }), {
+            status: 401,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      );
+
+      expect(auth.unreachable).toBe(false);
+      expect(auth.user).toBeNull();
+    });
   });
 });

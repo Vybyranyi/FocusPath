@@ -89,6 +89,9 @@ npm run dev
 | `COOKIE_DOMAIN` | ні | — | Домен cookie, якщо потрібен спільний для піддоменів |
 | `CORS_ORIGIN` | ні | `http://localhost:5173` | Список дозволених origin через кому |
 | `BCRYPT_ROUNDS` | ні | `12` | Вартість хешування пароля |
+| `APP_URL` | у production для скидання пароля | перший `CORS_ORIGIN` | Адреса застосунку, на яку ведуть посилання в листах. Ніколи не береться із заголовка `Host` |
+| `SMTP_URL` | ні | — | Сервер для листів (скидання пароля). Без нього поза production лист пишеться в лог, у production — лише помилка |
+| `MAIL_FROM` | ні | `FocusPath <no-reply@focuspath.app>` | Відправник листів |
 | `VITE_API_URL` | **так** | — | Адреса API для клієнта |
 | `ADMIN_EMAIL` | ні | — | Для скрипта `seed:admin` |
 | `ADMIN_PASSWORD` | ні | — | Для скрипта `seed:admin` |

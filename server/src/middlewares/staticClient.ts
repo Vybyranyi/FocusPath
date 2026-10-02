@@ -20,8 +20,15 @@ export const DEFAULT_CLIENT_DIST = process.env.CLIENT_DIST
     ? path.resolve(process.env.CLIENT_DIST)
     : path.resolve(__dirname, '../../../frontend/dist');
 
-/** Prefixes the API owns. A request to one of these never gets the SPA shell. */
-const API_PREFIXES = ['/auth', '/habits'];
+/**
+ * Prefixes the API owns. A request to one of these never gets the SPA shell.
+ *
+ * Every router mounted in `app.ts` belongs here. `/plans` was mounted with the
+ * plan library and left off this list, so a mistyped plan endpoint asked for
+ * with `Accept: text/html` came back as the app's HTML instead of the 404 it
+ * was. `/explore`, the library's page, is a client route and is not listed.
+ */
+export const API_PREFIXES = ['/auth', '/habits', '/plans', '/healthz'];
 
 const isApiPath = (pathname: string): boolean =>
     API_PREFIXES.some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`));
@@ -66,21 +73,32 @@ export interface ClientHandlers {
 
 export const clientHandlers = (distDir: string = DEFAULT_CLIENT_DIST): ClientHandlers => {
     const indexHtml = path.join(distDir, 'index.html');
+    const hashedDir = path.join(distDir, 'assets') + path.sep;
 
     return {
         hasBuild: fs.existsSync(indexHtml),
 
         /**
-         * Hashed filenames make the assets immutable, so a year is safe and a
-         * repeat visit fetches nothing but the document.
+         * Only what Vite hashed may be cached for a year. Everything under
+         * `assets/` is named by its content, so a new deploy is a new name and
+         * a repeat visit fetches nothing but the document.
+         *
+         * Everything else keeps its name across deploys — the favicon, the
+         * icons, the web manifest and above all the service worker — and a
+         * year-long cache on those meant a changed icon never appeared and,
+         * worse, a changed worker would never be picked up. Those are served
+         * `no-cache`: kept, but checked with the server before each use.
          */
         assets: express.static(distDir, {
             // The document is the fallback's job; this serves the files beside it.
             index: false,
             maxAge: '1y',
+            immutable: true,
             setHeaders: (res, filePath) => {
                 if (filePath === indexHtml) {
                     noStore(res);
+                } else if (!filePath.startsWith(hashedDir)) {
+                    res.setHeader('Cache-Control', 'no-cache');
                 }
             },
         }),

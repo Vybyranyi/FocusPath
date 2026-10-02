@@ -27,6 +27,7 @@ import type {
     CreateHabitDto,
     CreateHabitFromPlanDto,
     MarkCompletionDto,
+    ToggleStepDto,
     UpdateDayTitleDto,
     UpdateHabitDto,
 } from '@validation/habitSchemas';
@@ -63,6 +64,31 @@ const requireScheduledDay = (habit: IHabit, day: Date): number => {
     return index;
 };
 
+/**
+ * Swaps in an edited checklist.
+ *
+ * A step the client names by an id this habit already has keeps that id, so
+ * renaming "Stretch" to "Stretch 10 minutes" keeps every day it was ticked. An
+ * id the habit does not have is not trusted — it becomes a new step. Ticks for
+ * steps that are gone are dropped from every day, or the per-day counts would
+ * include steps nobody can see.
+ */
+const replaceSteps = (habit: IHabit, steps: NonNullable<UpdateHabitDto['steps']>): void => {
+    const current = new Set((habit.steps ?? []).map(step => String(step._id)));
+
+    habit.steps = steps.map(step => ({
+        _id: step._id && current.has(step._id)
+            ? new mongoose.Types.ObjectId(step._id)
+            : new mongoose.Types.ObjectId(),
+        title: step.title,
+    }));
+
+    const kept = new Set(habit.steps.map(step => String(step._id)));
+    habit.dailyCompletions.forEach(day => {
+        day.completedSteps = day.completedSteps.filter(id => kept.has(String(id)));
+    });
+};
+
 /** Recomputes the fields that are derived from the schedule rather than set directly. */
 const refreshProgress = (habit: IHabit): void => {
     habit.currentStreak = calculateStreak(habit.dailyCompletions);
@@ -96,7 +122,7 @@ export const createAIHabit = async (
 
     let plan;
     try {
-        plan = await generateHabitPlan(dto.title, dto.type, requestedDuration);
+        plan = await generateHabitPlan(dto.title, dto.type, requestedDuration, dto.description);
     } catch (error) {
         // Worth a log line, but the caller only needs to know the AI is
         // unavailable — not why, and not with our stack attached.
@@ -113,6 +139,7 @@ export const createAIHabit = async (
         title: dto.title,
         description: dto.description ?? '',
         category: dto.category ?? '',
+        steps: dto.steps ?? [],
         startDate,
         duration: plan.duration,
         type: dto.type,
@@ -246,14 +273,31 @@ export const getHabitsForDate = (userId: string, date: Date) => {
                 title: 1,
                 description: 1,
                 category: 1,
-                steps: 1,
+                // Named field by field: an aggregation returns documents as
+                // stored, so anything a migration has not yet cleaned — the old
+                // per-habit `completed` on a step — would otherwise ride along.
+                'steps._id': 1,
+                'steps.title': 1,
                 startDate: 1,
                 type: 1,
                 color: 1,
                 icon: 1,
                 currentStreak: 1,
                 isCompleted: 1,
-                dayInfo: 1,
+                // The day view is where a habit is edited and published from,
+                // so it needs to know both: whether an edit takes a clone out
+                // of its plan's score, and whether this habit is published
+                // already. Without them the sheet offered to publish a habit a
+                // second time and only said no after the form was filled in.
+                fromPlanId: 1,
+                publishedPlanId: 1,
+                dayInfo: {
+                    _id: '$dayInfo._id',
+                    dayTitle: '$dayInfo.dayTitle',
+                    date: '$dayInfo.date',
+                    status: '$dayInfo.status',
+                    completedSteps: { $ifNull: ['$dayInfo.completedSteps', []] },
+                },
                 duration: 1,
                 completedCount: {
                     $size: {
@@ -278,10 +322,20 @@ export const updateHabit = async (
 
     const { title, description, category, steps, startDate, duration, type, color, icon } = changes;
 
-    if (title) habit.title = title;
+    // A day with no task of its own is titled after the habit when the schedule
+    // is built. Renaming the habit alone left every one of those days showing
+    // the old name as the day's task, on every card, for the rest of the run.
+    // Days the user or the AI actually wrote are left as they are.
+    if (title && title !== habit.title) {
+        const previousTitle = habit.title;
+        habit.dailyCompletions.forEach(day => {
+            if (day.dayTitle === previousTitle) day.dayTitle = title;
+        });
+        habit.title = title;
+    }
     if (description !== undefined) habit.description = description;
     if (category !== undefined) habit.category = category;
-    if (steps) habit.steps = steps;
+    if (steps) replaceSteps(habit, steps);
     if (type) habit.type = type;
     if (color) habit.color = color;
     if (icon) habit.icon = icon;
@@ -365,17 +419,38 @@ export const toggleStep = async (
     userId: string,
     habitId: string,
     stepId: string,
+    { date }: ToggleStepDto,
 ): Promise<{ habit: IHabit; completed: boolean }> => {
     const habit = await requireOwnedHabit(userId, habitId);
 
     const step = habit.steps?.find(candidate => candidate._id?.toString() === stepId);
-    if (!step) {
+    if (!step?._id) {
         throw new NotFoundError('Step not found');
     }
 
-    step.completed = !step.completed;
-    habit.updatedAt = new Date();
+    const day = habit.dailyCompletions[requireScheduledDay(habit, startOfUtcDay(date))];
+    const before = snapshotClone(habit);
+
+    const wasDone = day.completedSteps.some(id => id.equals(step._id));
+    day.completedSteps = wasDone
+        ? day.completedSteps.filter(id => !id.equals(step._id))
+        : [...day.completedSteps, step._id];
+
+    // Ticking the last step is doing the day. Only a day still undecided is
+    // moved: one the user already marked is theirs, and unticking a step never
+    // takes a `done` back — they may have finished it some other way.
+    const allTicked = (habit.steps ?? []).every(candidate =>
+        day.completedSteps.some(id => candidate._id && id.equals(candidate._id)),
+    );
+    if (!wasDone && allTicked && day.status === 'pending') {
+        day.status = 'done';
+    }
+
+    refreshProgress(habit);
     await habit.save();
 
-    return { habit, completed: step.completed };
+    await syncCloneStats(habit, before);
+    await matureProvenBadge(habit);
+
+    return { habit, completed: !wasDone };
 };

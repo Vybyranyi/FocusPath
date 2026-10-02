@@ -408,6 +408,21 @@ describe('Habit Controller', () => {
             expect(response.body.data.habit.dailyCompletions[1].status).toBe('done');
         });
 
+        it('carries a rename into the days still titled after the habit', async () => {
+            const habit = await createHabit(client, { duration: 3 });
+            await write(client, 'patch', `/habits/${habit._id}/day`)
+                .send({ date: dayKey(1), dayTitle: 'Read one chapter' })
+                .expect(200);
+
+            const response = await update(habit._id, { title: 'Read every evening' });
+
+            const titles = response.body.data.habit.dailyCompletions.map(
+                (day: { dayTitle: string }) => day.dayTitle,
+            );
+            // The two defaulted days follow the rename; the one written by hand stays.
+            expect(titles).toEqual(['Read every evening', 'Read one chapter', 'Read every evening']);
+        });
+
         it('refuses an update that changes nothing', async () => {
             const habit = await createHabit(client);
 
@@ -474,33 +489,130 @@ describe('Habit Controller', () => {
     });
 
     describe('PATCH /habits/:id/steps/:stepId', () => {
-        it('flips a step and reports its new state', async () => {
-            const habit = await createHabit(client, { steps: [{ title: 'Open the book' }] });
+        const tick = (habitId: string, stepId: string, date = dayKey(0)) =>
+            write(client, 'patch', `/habits/${habitId}/steps/${stepId}`).send({ date });
+
+        it('flips a step on the given day and reports its new state', async () => {
+            const habit = await createHabit(client, { steps: [{ title: 'Open the book' }, { title: 'Read' }] });
             const stepId = habit.steps[0]._id;
 
-            const first = await write(
-                client,
-                'patch',
-                `/habits/${habit._id}/steps/${stepId}`,
-            ).expect(200);
+            const first = await tick(habit._id, stepId).expect(200);
             expect(first.body.data.completed).toBe(true);
+            expect(first.body.data.habit.dailyCompletions[0].completedSteps).toEqual([stepId]);
 
-            const second = await write(
-                client,
-                'patch',
-                `/habits/${habit._id}/steps/${stepId}`,
-            ).expect(200);
+            const second = await tick(habit._id, stepId).expect(200);
             expect(second.body.data.completed).toBe(false);
+            expect(second.body.data.habit.dailyCompletions[0].completedSteps).toEqual([]);
+        });
+
+        /**
+         * A single flag per habit meant a step ticked on Monday stayed ticked
+         * for the rest of the run — a daily checklist you could fill in once.
+         */
+        it('keeps every day to its own ticks', async () => {
+            const habit = await createHabit(client, { steps: [{ title: 'Open the book' }, { title: 'Read' }] });
+
+            const response = await tick(habit._id, habit.steps[0]._id, dayKey(0)).expect(200);
+
+            expect(response.body.data.habit.dailyCompletions[0].completedSteps).toHaveLength(1);
+            expect(response.body.data.habit.dailyCompletions[1].completedSteps).toEqual([]);
+        });
+
+        it('does the day once its last step is ticked', async () => {
+            const habit = await createHabit(client, { steps: [{ title: 'Open the book' }, { title: 'Read' }] });
+
+            await tick(habit._id, habit.steps[0]._id).expect(200);
+            const response = await tick(habit._id, habit.steps[1]._id).expect(200);
+
+            expect(response.body.data.habit.dailyCompletions[0].status).toBe('done');
+            expect(response.body.data.habit.currentStreak).toBe(1);
+        });
+
+        it('leaves a day the user already marked as they marked it', async () => {
+            const habit = await createHabit(client, { steps: [{ title: 'Read' }] });
+            await write(client, 'patch', `/habits/${habit._id}/complete`)
+                .send({ date: dayKey(0), status: 'failed' })
+                .expect(200);
+
+            const response = await tick(habit._id, habit.steps[0]._id).expect(200);
+
+            expect(response.body.data.habit.dailyCompletions[0].status).toBe('failed');
+        });
+
+        it('refuses a day outside the schedule', async () => {
+            const habit = await createHabit(client, { duration: 3, steps: [{ title: 'Read' }] });
+
+            await tick(habit._id, habit.steps[0]._id, dayKey(10)).expect(400);
+        });
+
+        it('requires the day', async () => {
+            const habit = await createHabit(client, { steps: [{ title: 'Read' }] });
+
+            await write(client, 'patch', `/habits/${habit._id}/steps/${habit.steps[0]._id}`)
+                .send({})
+                .expect(400);
         });
 
         it('reports a step that does not belong to the habit as not found', async () => {
             const habit = await createHabit(client);
 
-            await write(
-                client,
-                'patch',
-                `/habits/${habit._id}/steps/507f1f77bcf86cd799439011`,
-            ).expect(404);
+            await tick(habit._id, '507f1f77bcf86cd799439011').expect(404);
+        });
+
+        it('shows the day view each day its own ticks', async () => {
+            const habit = await createHabit(client, { steps: [{ title: 'Read' }] });
+            await tick(habit._id, habit.steps[0]._id).expect(200);
+
+            const today = await client.agent.get(`/habits/daily?date=${dayKey(0)}`).expect(200);
+            const tomorrow = await client.agent.get(`/habits/daily?date=${dayKey(1)}`).expect(200);
+
+            expect(today.body.data.habits[0].dayInfo.completedSteps).toEqual([habit.steps[0]._id]);
+            expect(tomorrow.body.data.habits[0].dayInfo.completedSteps).toEqual([]);
+        });
+    });
+
+    describe('editing steps', () => {
+        const update = (habitId: string, changes: Record<string, unknown>) =>
+            write(client, 'put', `/habits/${habitId}`).send(changes).expect(200);
+
+        it('keeps the ticks of a step renamed under its own id', async () => {
+            const habit = await createHabit(client, { steps: [{ title: 'Stretch' }] });
+            const stepId = habit.steps[0]._id;
+            await write(client, 'patch', `/habits/${habit._id}/steps/${stepId}`)
+                .send({ date: dayKey(0) })
+                .expect(200);
+
+            const response = await update(habit._id, { steps: [{ _id: stepId, title: 'Stretch 10 minutes' }] });
+
+            expect(response.body.data.habit.steps).toEqual([{ _id: stepId, title: 'Stretch 10 minutes' }]);
+            expect(response.body.data.habit.dailyCompletions[0].completedSteps).toEqual([stepId]);
+        });
+
+        it('drops the ticks of a step that was removed', async () => {
+            const habit = await createHabit(client, { steps: [{ title: 'Stretch' }, { title: 'Water' }] });
+            await write(client, 'patch', `/habits/${habit._id}/steps/${habit.steps[0]._id}`)
+                .send({ date: dayKey(0) })
+                .expect(200);
+
+            const response = await update(habit._id, { steps: [{ _id: habit.steps[1]._id, title: 'Water' }] });
+
+            expect(response.body.data.habit.dailyCompletions[0].completedSteps).toEqual([]);
+        });
+
+        it('does not trust an id the habit never had', async () => {
+            const habit = await createHabit(client, { steps: [{ title: 'Stretch' }] });
+            const foreign = '507f1f77bcf86cd799439011';
+
+            const response = await update(habit._id, { steps: [{ _id: foreign, title: 'Stretch' }] });
+
+            expect(response.body.data.habit.steps[0]._id).not.toBe(foreign);
+        });
+
+        it('refuses more than twenty steps', async () => {
+            const habit = await createHabit(client);
+            const many = Array.from({ length: 21 }, (_unused, index) => ({ title: `Step ${index}` }));
+
+            await write(client, 'put', `/habits/${habit._id}`).send({ steps: many }).expect(400);
         });
     });
 

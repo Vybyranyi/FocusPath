@@ -28,7 +28,7 @@ const show = (plan: Plan, user: User | null) => {
 
   return renderWithProviders(<PlanDetailPage />, {
     route: `/explore/${plan._id}`,
-    preloadedState: { auth: { user, loading: false, error: null } },
+    preloadedState: { auth: { user, loading: false, error: null, unreachable: false } },
   });
 };
 
@@ -122,7 +122,7 @@ describe("PlanDetailPage", () => {
 
     renderWithProviders(<PlanDetailPage />, {
       route: "/explore/gone",
-      preloadedState: { auth: { user: signedIn, loading: false, error: null } },
+      preloadedState: { auth: { user: signedIn, loading: false, error: null, unreachable: false } },
     });
 
     await waitFor(() =>

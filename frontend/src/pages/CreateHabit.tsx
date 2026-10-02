@@ -7,21 +7,27 @@ import EmojiPicker from "@components/pickers/EmojiPicker";
 import HabitTypePicker from "@components/pickers/HabitTypePicker";
 import Input from "@components/ui/Input";
 import WeekDatePicker from "@components/pickers/WeekDatePicker";
+import StepsEditor from "@components/habit/StepsEditor";
+import { STEP_TITLE_MAX } from "@/lib/steps";
 import { createAIHabit, createHabit } from "@store/habitSlice";
 import { useAppDispatch, useAppSelector } from "@store/hooks";
 import { Form, Formik } from "formik";
 import { useNavigate } from "react-router";
+import { useRef } from "react";
 import * as Yup from "yup";
 import type { CreateHabitFormValues } from "@/types/forms";
 
 const validationSchema = Yup.object({
   color: Yup.string().required("Color is required"),
   emoji: Yup.string().required("Emoji is required"),
-  habitName: Yup.string().min(5).max(20).required("Habit name is required"),
-  habitDescription: Yup.string()
-    .min(10)
-    .max(100)
-    .required("Habit description is required"),
+  // The server's own limits. The form asked for 5–20 characters, so "Read",
+  // "Run" and "Yoga" were refused before they were ever sent, and a
+  // description the API treats as optional was demanded at ten characters.
+  habitName: Yup.string()
+    .trim()
+    .max(100, "Must be 100 characters or fewer")
+    .required("Habit name is required"),
+  habitDescription: Yup.string().trim().max(500, "Must be 500 characters or fewer"),
   startDate: Yup.date()
     .nullable()
     .required("Start date is required")
@@ -33,8 +39,8 @@ const validationSchema = Yup.object({
       sel.setHours(0, 0, 0, 0);
       return sel >= today;
     }),
-  aiEnabled: Yup.boolean(),
-  duration: Yup.string().when("aiEnabled", {
+  autoDuration: Yup.boolean(),
+  duration: Yup.string().when("autoDuration", {
     is: false,
     then: (s) =>
       s
@@ -46,6 +52,9 @@ const validationSchema = Yup.object({
         }),
     otherwise: (s) => s.notRequired(),
   }),
+  steps: Yup.array().of(
+    Yup.object({ title: Yup.string().max(STEP_TITLE_MAX, `Each step must be ${STEP_TITLE_MAX} characters or fewer`) }),
+  ),
   habitType: Yup.string()
     .oneOf(["build", "quit"])
     .required("Habit type is required"),
@@ -57,8 +66,9 @@ const initialValues: CreateHabitFormValues = {
   habitName: "",
   habitDescription: "",
   category: "",
+  steps: [],
   startDate: new Date(),
-  aiEnabled: false,
+  autoDuration: false,
   duration: "",
   habitType: "build",
 };
@@ -71,10 +81,20 @@ export default function CreateHabit() {
   // put "Creating..." on whichever button the user had not pressed.
   const creating = useAppSelector((state) => state.habit.creating);
 
+  /**
+   * Which button submitted the form. Kept out of the form's values on purpose:
+   * it used to be the same `aiEnabled` flag as the "let AI choose the number of
+   * days" switch, so pressing "Create by AI" flipped that switch on, hid the
+   * days field while still sending what was in it, and left "Create" disabled
+   * after a failed AI attempt. Set from the click, it was also racing Formik's
+   * own validation of the submit it triggered.
+   */
+  const intent = useRef<"manual" | "ai">("manual");
+
   const handleSubmit = async (values: CreateHabitFormValues) => {
     try {
       await dispatch(
-        values.aiEnabled ? createAIHabit(values) : createHabit(values),
+        intent.current === "ai" ? createAIHabit(values) : createHabit(values),
       ).unwrap();
       navigate("/main");
     } catch {
@@ -132,7 +152,7 @@ export default function CreateHabit() {
                     error={touched.habitName ? errors.habitName : ""}
                   />
                   <Input
-                    label="Habit description"
+                    label="Habit description (optional)"
                     placeholder="Describe your habit"
                     type="text"
                     value={values.habitDescription}
@@ -153,6 +173,10 @@ export default function CreateHabit() {
                     value={values.category}
                     onChange={(value) => setFieldValue("category", value)}
                   />
+                  <StepsEditor
+                    steps={values.steps}
+                    onChange={(steps) => setFieldValue("steps", steps)}
+                  />
                 </div>
 
                 <div className="flex flex-col gap-4">
@@ -166,11 +190,11 @@ export default function CreateHabit() {
                     error={touched.startDate ? errors.startDate : ""}
                   />
                   <DurationPicker
-                    aiEnabled={values.aiEnabled}
+                    autoDuration={values.autoDuration}
                     duration={values.duration}
                     onAiToggle={() => {
-                      setFieldValue("aiEnabled", !values.aiEnabled);
-                      if (!values.aiEnabled) {
+                      setFieldValue("autoDuration", !values.autoDuration);
+                      if (!values.autoDuration) {
                         setFieldValue("duration", "");
                         setFieldTouched("duration", false);
                       }
@@ -200,8 +224,8 @@ export default function CreateHabit() {
                       type="primary"
                       size="large"
                       htmlType="submit"
-                      disabled={creating !== null || values.aiEnabled}
-                      onClick={() => setFieldValue("aiEnabled", false)}
+                      disabled={creating !== null || values.autoDuration}
+                      onClick={() => { intent.current = "manual"; }}
                     >
                       {creating === "manual" ? "Creating..." : "Create"}
                     </Button>
@@ -210,12 +234,18 @@ export default function CreateHabit() {
                       size="large"
                       htmlType="submit"
                       disabled={creating !== null}
-                      onClick={() => setFieldValue("aiEnabled", true)}
+                      onClick={() => { intent.current = "ai"; }}
                     >
                       {creating === "ai" ? "Creating..." : "Create by AI"}
                     </Button>
                   </div>
 
+                  {values.autoDuration && creating === null && (
+                    <p className="alternative text-ink-muted mt-1">
+                      Only the AI can pick the number of days. Turn the switch
+                      off to create this habit yourself.
+                    </p>
+                  )}
                   {creating !== null && (
                     <p className="alternative text-ink-muted mt-1">
                       Creating habit...

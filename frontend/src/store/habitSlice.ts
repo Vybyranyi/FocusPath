@@ -1,8 +1,9 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import type { DayStatus, Habit, HabitSummary } from "@shared/index";
-import type { CreateHabitFormValues } from "@/types/forms";
+import type { CreateHabitFormValues, StepDraft } from "@/types/forms";
 import { apiRequest, errorMessage } from "@api/client";
 import { dayKeyOf, toDayKey, todayKey } from "@/lib/dates";
+import { publishPlan, unpublishPlan } from "@store/plansSlice";
 
 export interface IHabitSlice {
   /** Every habit, as `GET /habits` returns them. */
@@ -17,6 +18,12 @@ export interface IHabitSlice {
    */
   creating: "manual" | "ai" | null;
   error: string | null;
+  /**
+   * The day request whose answer the day view is waiting for. Stepping
+   * through the week fires one request per tap, and an earlier one that
+   * answered last used to replace the day actually on screen.
+   */
+  dayRequestId: string | null;
 }
 
 const initialState: IHabitSlice = {
@@ -25,6 +32,13 @@ const initialState: IHabitSlice = {
   loading: false,
   creating: null,
   error: null,
+  dayRequestId: null,
+};
+
+/** Blank rows are what an "add step" button leaves behind; they are not steps. */
+const toStepsBody = (steps: StepDraft[]) => {
+  const titled = steps.map((step) => step.title.trim()).filter(Boolean);
+  return titled.length > 0 ? titled.map((title) => ({ title })) : undefined;
 };
 
 /** The form's shape, translated into what the API expects. */
@@ -32,11 +46,12 @@ const toHabitBody = (values: CreateHabitFormValues, allowAutoDuration = false) =
   title: values.habitName.trim(),
   description: values.habitDescription.trim() || undefined,
   category: values.category || undefined,
+  steps: toStepsBody(values.steps),
   // The picker hands back local midnight. As a full instant that arrives as the
   // previous day east of Greenwich, which either shifted the whole schedule or
   // got the habit refused for starting "in the past".
   startDate: values.startDate ? toDayKey(values.startDate) : todayKey(),
-  duration: allowAutoDuration && !values.duration ? null : Number(values.duration),
+  duration: allowAutoDuration && values.autoDuration ? null : Number(values.duration),
   type: values.habitType,
   color: values.color,
   icon: values.emoji,
@@ -118,18 +133,64 @@ export const markHabitCompletion = createAsyncThunk(
   },
 );
 
+/** Ticks or unticks a step on one day. `date` is a day the server named. */
 export const toggleHabitStep = createAsyncThunk(
   "habit/toggleHabitStep",
   async (
-    { habitId, stepId }: { habitId: string; stepId: string },
+    { habitId, stepId, date }: { habitId: string; stepId: string; date: string },
     { rejectWithValue },
   ) => {
     try {
-      const { completed } = await apiRequest<{ stepId: string; completed: boolean }>(
+      return await apiRequest<{ stepId: string; completed: boolean; habit: Habit }>(
         `/habits/${habitId}/steps/${stepId}`,
-        { method: "PATCH" },
+        { method: "PATCH", body: { date: dayKeyOf(date) } },
       );
-      return { habitId, stepId, completed };
+    } catch (error) {
+      return rejectWithValue(errorMessage(error));
+    }
+  },
+);
+
+/** The fields the edit sheet may change. Rescheduling is the server's job. */
+export interface HabitChanges {
+  title?: string;
+  description?: string;
+  category?: string;
+  color?: string;
+  icon?: string;
+  duration?: number;
+  steps?: StepDraft[];
+}
+
+export const updateHabit = createAsyncThunk(
+  "habit/updateHabit",
+  async (
+    { habitId, changes }: { habitId: string; changes: HabitChanges },
+    { rejectWithValue },
+  ) => {
+    try {
+      return await apiRequest<{ habit: Habit }>(`/habits/${habitId}`, {
+        method: "PUT",
+        body: changes,
+      });
+    } catch (error) {
+      return rejectWithValue(errorMessage(error));
+    }
+  },
+);
+
+/** Rewrites the task of one day. `date` is a day the server named. */
+export const renameHabitDay = createAsyncThunk(
+  "habit/renameHabitDay",
+  async (
+    { habitId, date, dayTitle }: { habitId: string; date: string; dayTitle: string },
+    { rejectWithValue },
+  ) => {
+    try {
+      return await apiRequest<{ habit: Habit }>(`/habits/${habitId}/day`, {
+        method: "PATCH",
+        body: { date: dayKeyOf(date), dayTitle },
+      });
     } catch (error) {
       return rejectWithValue(errorMessage(error));
     }
@@ -149,6 +210,51 @@ export const deleteHabit = createAsyncThunk(
     }
   },
 );
+
+/**
+ * Folds a habit the server just returned in full back into both lists.
+ *
+ * The day view holds a narrowed copy, so it is rebuilt from the full schedule
+ * rather than patched field by field: an edit can rename the day, move its
+ * status or — when the habit is shortened — take the selected day out of the
+ * schedule altogether, in which case the habit leaves that day's list.
+ */
+const applyHabit = (state: IHabitSlice, habit: Habit) => {
+  const fullIndex = state.habits.findIndex((h) => h._id === habit._id);
+  if (fullIndex !== -1) state.habits[fullIndex] = habit;
+
+  const summaryIndex = state.habitsForDate.findIndex((h) => h._id === habit._id);
+  if (summaryIndex === -1) return;
+
+  const summary = state.habitsForDate[summaryIndex];
+  const day = habit.dailyCompletions.find(
+    (entry) => dayKeyOf(entry.date) === dayKeyOf(summary.dayInfo.date),
+  );
+
+  if (!day) {
+    state.habitsForDate.splice(summaryIndex, 1);
+    return;
+  }
+
+  state.habitsForDate[summaryIndex] = {
+    _id: habit._id,
+    title: habit.title,
+    description: habit.description,
+    category: habit.category,
+    steps: habit.steps,
+    startDate: habit.startDate,
+    duration: habit.duration,
+    type: habit.type,
+    color: habit.color,
+    icon: habit.icon,
+    currentStreak: habit.currentStreak,
+    isCompleted: habit.isCompleted,
+    fromPlanId: habit.fromPlanId,
+    publishedPlanId: habit.publishedPlanId,
+    dayInfo: day,
+    completedCount: habit.dailyCompletions.filter((entry) => entry.status === "done").length,
+  };
+};
 
 const habitSlice = createSlice({
   name: "habit",
@@ -184,15 +290,18 @@ const habitSlice = createSlice({
       });
 
     builder
-      .addCase(getHabitsForDate.pending, (state) => {
+      .addCase(getHabitsForDate.pending, (state, action) => {
         state.loading = true;
         state.error = null;
+        state.dayRequestId = action.meta.requestId;
       })
       .addCase(getHabitsForDate.fulfilled, (state, action) => {
+        if (action.meta.requestId !== state.dayRequestId) return;
         state.loading = false;
         state.habitsForDate = action.payload.habits || [];
       })
       .addCase(getHabitsForDate.rejected, (state, action) => {
+        if (action.meta.requestId !== state.dayRequestId) return;
         state.loading = false;
         state.error = action.payload as string;
       });
@@ -238,34 +347,63 @@ const habitSlice = createSlice({
       }
     });
 
+    /** Flips a step in the day view's copy of the day it was ticked on. */
+    const flipStep = (state: IHabitSlice, arg: { habitId: string; stepId: string; date: string }) => {
+      const habit = state.habitsForDate.find(
+        (h) => h._id === arg.habitId && dayKeyOf(h.dayInfo.date) === dayKeyOf(arg.date),
+      );
+      if (!habit) return;
+      const ticked = habit.dayInfo.completedSteps;
+      habit.dayInfo.completedSteps = ticked.includes(arg.stepId)
+        ? ticked.filter((id) => id !== arg.stepId)
+        : [...ticked, arg.stepId];
+    };
+
     builder
+      // Optimistic: a checklist that waits on the network before it ticks feels broken.
       .addCase(toggleHabitStep.pending, (state, action) => {
-        // Optimistic update
-        const { habitId, stepId } = action.meta.arg;
-        const habit = state.habitsForDate.find((h) => h._id === habitId);
-        const step = habit?.steps?.find((s) => s._id === stepId);
-        if (step) {
-          step.completed = !step.completed;
-        }
+        flipStep(state, action.meta.arg);
       })
+      // The server's answer replaces the guess wholesale — ticking the last
+      // step can also finish the day, which the guess knows nothing about.
       .addCase(toggleHabitStep.fulfilled, (state, action) => {
-        // Confirmation from the server; corrects the guess above if it differed.
-        const { habitId, stepId, completed } = action.payload;
-        const habit = state.habitsForDate.find((h) => h._id === habitId);
-        const step = habit?.steps?.find((s) => s._id === stepId);
-        if (step) {
-          step.completed = completed;
-        }
+        applyHabit(state, action.payload.habit);
       })
       .addCase(toggleHabitStep.rejected, (state, action) => {
-        // Rollback on failure
-        const { habitId, stepId } = action.meta.arg;
-        const habit = state.habitsForDate.find((h) => h._id === habitId);
-        const step = habit?.steps?.find((s) => s._id === stepId);
-        if (step) {
-          step.completed = !step.completed;
-        }
+        flipStep(state, action.meta.arg);
       });
+
+    // Failures are left to the sheet that asked, which shows them beside the
+    // form. The slice-wide `error` is what the day view renders *instead of*
+    // the list, so a rejected rename would have blanked every habit on screen.
+    builder
+      .addCase(updateHabit.fulfilled, (state, action) => {
+        applyHabit(state, action.payload.habit);
+      })
+      .addCase(renameHabitDay.fulfilled, (state, action) => {
+        applyHabit(state, action.payload.habit);
+      });
+
+    // A published habit is published from here on. The sheet reads this to
+    // offer the plan instead of a second publish the server would refuse.
+    builder.addCase(publishPlan.fulfilled, (state, action) => {
+      const { habitId } = action.meta.arg;
+      const planId = action.payload.plan._id;
+      state.habitsForDate
+        .filter((h) => h._id === habitId)
+        .forEach((h) => { h.publishedPlanId = planId; });
+      state.habits
+        .filter((h) => h._id === habitId)
+        .forEach((h) => { h.publishedPlanId = planId; });
+    });
+
+    // Withdrawn, the habit may be published again, as the server now allows.
+    builder.addCase(unpublishPlan.fulfilled, (state, action) => {
+      const planId = action.payload;
+      [...state.habitsForDate, ...state.habits]
+        .filter((h) => h.publishedPlanId === planId)
+        .forEach((h) => { delete h.publishedPlanId; });
+    });
 
     builder
       .addCase(deleteHabit.pending, (state) => {

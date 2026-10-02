@@ -10,6 +10,7 @@ import type {
     HabitParams,
     MarkCompletionDto,
     StepParams,
+    ToggleStepDto,
     UpdateDayTitleDto,
     UpdateHabitDto,
 } from '@validation/habitSchemas';
@@ -78,9 +79,9 @@ export const markHabitCompletion = async (
         habit: await habitService.markCompletion(requireUserId(req), req.params.id, req.body),
     });
 
-export const toggleStep = async (req: TypedRequest<unknown, StepParams>, res: Response) => {
+export const toggleStep = async (req: TypedRequest<ToggleStepDto, StepParams>, res: Response) => {
     const { id, stepId } = req.params;
-    const { habit, completed } = await habitService.toggleStep(requireUserId(req), id, stepId);
+    const { habit, completed } = await habitService.toggleStep(requireUserId(req), id, stepId, req.body);
 
     return ok(res, { stepId, completed, habit });
 };

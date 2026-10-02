@@ -1,11 +1,18 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import type { User } from "@shared/index";
-import { apiRequest, errorMessage, hasSessionCookie } from "@api/client";
+import { ApiError, apiRequest, errorMessage, hasSessionCookie } from "@api/client";
 
 export interface IAuthSlice {
     user: User | null;
     loading: boolean,
     error: string | null,
+    /**
+     * The session check could not reach the server — no response, or a 5xx.
+     * Kept apart from "signed out" on purpose: treating the two alike sent a
+     * signed-in user to the login form every time the app opened offline or
+     * mid-deploy, and an installed app opened on the underground always did.
+     */
+    unreachable: boolean,
 }
 
 // No token anywhere in this slice. The session lives in httpOnly cookies the
@@ -15,6 +22,7 @@ const initialState: IAuthSlice = {
     user: null,
     loading: false,
     error: null,
+    unreachable: false,
 }
 
 interface UserResponse {
@@ -60,6 +68,40 @@ export const loginUser = createAsyncThunk(
 );
 
 /**
+ * Asks for a reset link. The server answers the same whether or not the
+ * address has an account, so there is nothing to put in the store — the page
+ * says what happens next either way.
+ */
+export const requestPasswordReset = createAsyncThunk(
+    "auth/requestPasswordReset",
+    async (email: string, { rejectWithValue }) => {
+        try {
+            await apiRequest<null>("/auth/forgot-password", { method: "POST", body: { email } });
+        } catch (error) {
+            return rejectWithValue(errorMessage(error));
+        }
+    },
+);
+
+/** Sets a new password from a reset link. The server signs the person in. */
+export const resetPassword = createAsyncThunk(
+    "auth/resetPassword",
+    async ({ token, newPassword }: { token: string; newPassword: string }, { rejectWithValue }) => {
+        try {
+            return await apiRequest<UserResponse>("/auth/reset-password", {
+                method: "POST",
+                body: { token, newPassword },
+            });
+        } catch (error) {
+            return rejectWithValue(errorMessage(error));
+        }
+    },
+);
+
+/** What `fetchCurrentUser` rejects with when the server could not be reached. */
+export const SESSION_UNREACHABLE = "SESSION_UNREACHABLE";
+
+/**
  * Restores the session on load. The cookies are already in the browser, so this
  * only asks who they belong to; the client renews an expired access cookie on
  * its own before this ever sees a 401.
@@ -79,6 +121,12 @@ export const fetchCurrentUser = createAsyncThunk(
         try {
             return await apiRequest<UserResponse>("/auth/me");
         } catch (error) {
+            // Only the server saying no — a 401 after the client's own refresh
+            // attempt — means there is no session. Not hearing from it at all
+            // says nothing about the session either way.
+            if (error instanceof ApiError && (error.status === 0 || error.status >= 500)) {
+                return rejectWithValue(SESSION_UNREACHABLE);
+            }
             return rejectWithValue(errorMessage(error));
         }
     },
@@ -169,6 +217,12 @@ const authSlice = createSlice({
                 state.error = action.payload as string;
             });
 
+        // The reset page shows its own errors beside its own form; the slice's
+        // `error` belongs to the login form and would appear there next.
+        builder.addCase(resetPassword.fulfilled, (state, action) => {
+            state.user = action.payload.user;
+        });
+
         builder
             .addCase(loginUser.pending, (state) => {
                 state.loading = true;
@@ -190,11 +244,13 @@ const authSlice = createSlice({
             })
             .addCase(fetchCurrentUser.fulfilled, (state, action) => {
                 state.loading = false;
+                state.unreachable = false;
                 state.user = action.payload.user;
             })
-            .addCase(fetchCurrentUser.rejected, (state) => {
+            .addCase(fetchCurrentUser.rejected, (state, action) => {
                 state.loading = false;
                 state.user = null;
+                state.unreachable = action.payload === SESSION_UNREACHABLE;
                 // Not an error worth showing: arriving without a session is the
                 // normal state of a visitor who has not signed in.
                 state.error = null;

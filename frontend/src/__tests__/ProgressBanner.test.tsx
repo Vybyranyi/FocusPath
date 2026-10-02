@@ -18,6 +18,7 @@ const habit = (id: string, completed: boolean) =>
     dayInfo: {
       _id: `${id}-day`,
       dayTitle: "task",
+      completedSteps: [],
       date: "2025-01-06T00:00:00.000Z",
       status: completed ? "done" : "pending",
     },
@@ -44,7 +45,24 @@ describe("ProgressBanner", () => {
     });
 
     expect(screen.getByText("1 of 3 completed")).toBeInTheDocument();
-    expect(screen.getByText("Your daily goals almost done!")).toBeInTheDocument();
+    expect(screen.getByText("Keep going — 2 to go")).toBeInTheDocument();
+  });
+
+  /** "Almost done" at 0 of 5 was not almost anything. */
+  it("does not call a day with nothing done almost done", () => {
+    renderWithProviders(<ProgressBanner />, {
+      preloadedState: withHabits([habit("a", false), habit("b", false)]),
+    });
+
+    expect(screen.getByText("Nothing done yet — pick one to start")).toBeInTheDocument();
+  });
+
+  it("says so when one is left", () => {
+    renderWithProviders(<ProgressBanner />, {
+      preloadedState: withHabits([habit("a", true), habit("b", false)]),
+    });
+
+    expect(screen.getByText("Almost there — one to go!")).toBeInTheDocument();
   });
 
   it("shows the completed share as a rounded percentage", () => {

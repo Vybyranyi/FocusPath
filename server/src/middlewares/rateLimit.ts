@@ -38,6 +38,20 @@ export const authLimiter = rateLimit({
 });
 
 /**
+ * Reset-link requests. Every one that names a real account sends a mail, and
+ * every one answers 200 whether or not it did, so there are no failures for
+ * `authLimiter` to count. Counted in full instead, and kept low: nobody needs
+ * a sixth reset link within the hour.
+ */
+export const resetRequestLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: 5,
+    ...headers,
+    skip,
+    message: refusal('Too many reset requests, please try again later'),
+});
+
+/**
  * Habit generation spends real money at OpenAI on every call, so it is keyed by
  * user rather than by address: sharing an office network should not let one
  * person burn everyone's quota, and rotating addresses should not multiply it.

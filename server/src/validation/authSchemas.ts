@@ -100,3 +100,19 @@ export const changePasswordSchema = z.object({
     newPassword: password,
 });
 export type ChangePasswordDto = z.infer<typeof changePasswordSchema>;
+
+/**
+ * Asking for a reset link. The address is held to the same rules as at
+ * registration, so `Ann@Example.com ` finds the account stored as
+ * `ann@example.com`.
+ */
+export const forgotPasswordSchema = z.object({ email });
+export type ForgotPasswordDto = z.infer<typeof forgotPasswordSchema>;
+
+export const resetPasswordSchema = z.object({
+    // Only its shape is checked here; whether it is a live token is the
+    // service's question, answered by hashing it.
+    token: z.string('Reset token is required').trim().min(1, 'Reset token is required').max(200),
+    newPassword: password,
+});
+export type ResetPasswordDto = z.infer<typeof resetPasswordSchema>;

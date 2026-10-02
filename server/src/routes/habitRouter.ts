@@ -23,6 +23,7 @@ import {
     habitsForDateQuerySchema,
     markCompletionSchema,
     stepParamsSchema,
+    toggleStepSchema,
     updateDayTitleSchema,
     updateHabitSchema,
 } from '@validation/habitSchemas';
@@ -58,6 +59,6 @@ router.patch('/:id/day', verifyTokenMiddleware, validate({ params: habitParamsSc
 router.patch('/:id/complete', verifyTokenMiddleware, validate({ params: habitParamsSchema, body: markCompletionSchema }), markHabitCompletion);
 
 // Оновлення кроку (переключення статусу)
-router.patch('/:id/steps/:stepId', verifyTokenMiddleware, validate({ params: stepParamsSchema }), toggleStep);
+router.patch('/:id/steps/:stepId', verifyTokenMiddleware, validate({ params: stepParamsSchema, body: toggleStepSchema }), toggleStep);
 
 export default router;

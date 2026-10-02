@@ -7,6 +7,9 @@ import { cn } from "@/lib/utils";
 import { useIsDesktop } from "@hooks/useIsDesktop";
 import { useAppSelector } from "@store/hooks";
 
+/** Pages for someone not yet signed in, which carry no navigation of their own. */
+const AUTH_PAGES = ["/login", "/register", "/forgot-password", "/reset-password"];
+
 export default function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
   const isDesktop = useIsDesktop();
@@ -16,10 +19,10 @@ export default function Layout({ children }: { children: ReactNode }) {
 
   // Creating a habit hides the bar on mobile — the form needs the room — but
   // keeps it on desktop, where it sits beside the content.
-  const hideOnMobile = ["/login", "/register", "/createhabit"].some((path) =>
+  const hideOnMobile = [...AUTH_PAGES, "/createhabit"].some((path) =>
     location.pathname.startsWith(path),
   );
-  const hideOnDesktop = ["/login", "/register"].some((path) =>
+  const hideOnDesktop = AUTH_PAGES.some((path) =>
     location.pathname.startsWith(path),
   );
   const hidden = isDesktop ? hideOnDesktop : hideOnMobile;
@@ -31,6 +34,14 @@ export default function Layout({ children }: { children: ReactNode }) {
    * draws their avatar and their day.
    */
   const signedIn = Boolean(user);
+  /**
+   * Except on the pages for signing in. Their header is only a title and a
+   * back button — nothing of anyone's — and on a phone it is the only title
+   * they have, since the page's own heading is shown from tablet width up.
+   * Hiding it from everyone signed out left the login form without a heading
+   * and the registration form without its way back.
+   */
+  const onAuthPage = AUTH_PAGES.some((path) => location.pathname.startsWith(path));
   const showAppBar = signedIn && !hidden;
   const showGuestBar = !signedIn && !hideOnDesktop;
 
@@ -58,7 +69,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       {showAppBar && <AppBar />}
 
       <div className="w-full max-w-full box-border">
-        {signedIn ? <ResponsiveHeader /> : showGuestBar && <GuestBar />}
+        {signedIn || onAuthPage ? <ResponsiveHeader /> : showGuestBar && <GuestBar />}
         <main id="main" tabIndex={-1} className="outline-none">
           {children}
         </main>

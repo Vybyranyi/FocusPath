@@ -5,11 +5,12 @@ import type { DayStatus, HabitSummary } from '@shared/index';
 import { markHabitCompletion } from '@store/habitSlice';
 import { useAppDispatch } from '@store/hooks';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { dayKeyOf, todayKey } from '@/lib/dates';
+import { dayKeyOf, dayNumberOf, todayKey } from '@/lib/dates';
 import { dayState, type DayState } from '@/lib/habitStatus';
 import { getHabitProgress } from '@/lib/habitProgress';
 import HabitDetailPopup from '@components/habit/HabitDetailPopup';
 import { cn } from '@/lib/utils';
+import { useToast } from '@hooks/useToast';
 
 interface IHabitCardProps {
   habit: HabitSummary;
@@ -58,6 +59,7 @@ function HabitCard({ habit }: IHabitCardProps) {
   const [swipeDelta, setSwipeDelta] = useState(0);
   const wasSwipedRef = useRef(false);
   const reduceMotion = useReducedMotion();
+  const { notify } = useToast();
 
   // Compared as day keys. `dayInfo.date` is midnight UTC, and reading it with
   // local getters put it on the previous day west of Greenwich — which showed
@@ -80,8 +82,18 @@ function HabitCard({ habit }: IHabitCardProps) {
       habitId: habit._id,
       date: habit.dayInfo.date,
       status,
-    }));
-  }, [dispatch, habit._id, habit.dayInfo.date]);
+    }))
+      .unwrap()
+      // Said out loud. A refused mark used to change nothing and say nothing:
+      // the card simply stayed as it was, which reads as a swipe that did not
+      // register, and the user tries again into the same failure.
+      .catch((reason: unknown) => {
+        notify(
+          `Could not save “${habit.title}” — ${typeof reason === 'string' ? reason : 'try again'}`,
+          'danger',
+        );
+      });
+  }, [dispatch, habit._id, habit.dayInfo.date, habit.title, notify]);
 
   const handlers = useSwipeable({
     onSwiping: e => {
@@ -152,7 +164,7 @@ function HabitCard({ habit }: IHabitCardProps) {
             <span className="min-w-0">
               <span className="body-bold block truncate">{habit.title}</span>
               <span className="alternative block text-ink-muted truncate">
-                {habit.dayInfo.dayTitle || `Day ${habit.currentStreak}`}
+                {habit.dayInfo.dayTitle || `Day ${dayNumberOf(habit.startDate, habit.dayInfo.date)}`}
               </span>
             </span>
             {style && (

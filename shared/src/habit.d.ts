@@ -1,9 +1,16 @@
 export type HabitType = "build" | "quit";
 
+/**
+ * One item of a habit's daily checklist. The habit holds the titles; whether a
+ * step is done is recorded per day, in `DailyCompletion.completedSteps`.
+ *
+ * It used to carry a single `completed` flag for the whole habit, so a step
+ * ticked on Monday was still ticked on Tuesday and every day after — a daily
+ * checklist that could only ever be filled in once.
+ */
 export interface HabitStep {
     _id: string;
     title: string;
-    completed: boolean;
 }
 
 /**
@@ -27,6 +34,8 @@ export interface DailyCompletion {
     /** ISO 8601 date string, normalised to midnight UTC. */
     date: string;
     status: DayStatus;
+    /** Ids of the habit's steps ticked on this day. */
+    completedSteps: string[];
 }
 
 /** A habit in full, as returned by `GET /habits` and `GET /habits/:id`. */

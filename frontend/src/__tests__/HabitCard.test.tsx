@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, screen } from "@testing-library/react";
 import { format } from "date-fns";
 import type { DayStatus } from "@shared/index";
 import HabitCard from "@components/habit/HabitCard";
@@ -11,6 +11,7 @@ const SUITE_TZ = process.env.TZ;
 
 afterEach(() => {
   process.env.TZ = SUITE_TZ;
+  vi.unstubAllGlobals();
 });
 
 /**
@@ -43,6 +44,7 @@ const renderDay = (offset: number, status: DayStatus = "pending") =>
         dayInfo: {
           _id: "day-1",
           dayTitle: "Read 10 pages",
+          completedSteps: [],
           date: utcMidnightOf(daysFromToday(offset)),
           status,
         },
@@ -169,5 +171,24 @@ describe("HabitCard", () => {
 
       expect(statusOf("Read")).toBe("missed");
     });
+  });
+
+  /** A refused mark changed nothing and said nothing, which reads as a missed swipe. */
+  it("says so when a mark is refused", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ success: false, error: { code: "BAD_REQUEST", message: "Date is outside habit duration" } }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        ),
+      ),
+    );
+    document.cookie = "csrf_token=token; path=/";
+    renderDay(0);
+
+    fireEvent.click(screen.getByRole("button", { name: "Mark Read done" }));
+
+    expect(await screen.findByText(/could not save “read” — date is outside habit duration/i)).toBeInTheDocument();
   });
 });

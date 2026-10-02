@@ -1,6 +1,15 @@
 import type { HabitType } from "@shared/index";
 
 /**
+ * A step while it is being written. `_id` is present only for a step the habit
+ * already has, so an edit can rename it without losing the days it was ticked.
+ */
+export interface StepDraft {
+  _id?: string;
+  title: string;
+}
+
+/**
  * What the create-habit form holds while it is being filled in.
  *
  * Deliberately not the API's `Habit`: the field names follow the labels on
@@ -19,8 +28,14 @@ export interface CreateHabitFormValues {
    * sheet asks for it then.
    */
   category: string;
+  /** The daily checklist, one row per step. Blank rows are dropped on submit. */
+  steps: StepDraft[];
   startDate: Date | undefined;
-  aiEnabled: boolean;
+  /**
+   * The "let AI choose the number of days" switch — nothing more. Which
+   * button submitted the form is not form state.
+   */
+  autoDuration: boolean;
   duration: string;
   habitType: HabitType;
 }

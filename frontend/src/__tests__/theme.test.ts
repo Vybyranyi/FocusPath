@@ -1,3 +1,5 @@
+import fs from "fs";
+import path from "path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyThemeChoice,
@@ -75,5 +77,31 @@ describe("theme choice", () => {
 
     getItem.mockRestore();
     setItem.mockRestore();
+  });
+});
+
+describe("the theme applied before the app loads", () => {
+  const root = path.resolve(__dirname, "../..");
+
+  /**
+   * The CSP is `script-src 'self'`, which refuses inline scripts. The theme
+   * bootstrap was inline, so in production it never ran — and nothing failed
+   * locally, because Vite's dev server sends no CSP at all.
+   */
+  it("keeps index.html free of inline scripts the CSP would refuse", () => {
+    const html = fs.readFileSync(path.join(root, "index.html"), "utf8");
+    const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/g)];
+
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const [, attributes, body] of scripts) {
+      expect(attributes).toMatch(/\bsrc=/);
+      expect(body.trim()).toBe("");
+    }
+  });
+
+  it("reads the same key the app writes", () => {
+    const bootstrap = fs.readFileSync(path.join(root, "public/theme-init.js"), "utf8");
+
+    expect(bootstrap).toContain(`'${THEME_STORAGE_KEY}'`);
   });
 });

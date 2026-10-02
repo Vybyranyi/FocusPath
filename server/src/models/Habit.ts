@@ -30,11 +30,11 @@ export interface IHabit
         dayTitle: string;
         date: Date;
         status: DayStatus;
+        completedSteps: mongoose.Types.ObjectId[];
     }>;
     steps?: Array<{
         _id?: mongoose.Types.ObjectId;
         title: string;
-        completed: boolean;
     }>;
     createdAt: Date;
     updatedAt: Date;
@@ -53,7 +53,8 @@ const HabitSchema: Schema = new Schema({
     dailyCompletions: [{
         dayTitle: { type: String, required: true },
         date: { type: Date, required: true },
-        status: { type: String, enum: DAY_STATUSES, default: 'pending', required: true }
+        status: { type: String, enum: DAY_STATUSES, default: 'pending', required: true },
+        completedSteps: { type: [mongoose.Types.ObjectId], default: [] }
     }],
     description: { type: String, default: '' },
     category: { type: String, default: '' },
@@ -63,8 +64,7 @@ const HabitSchema: Schema = new Schema({
     fromPlanId: { type: mongoose.Types.ObjectId, ref: 'Plan', required: false },
     publishedPlanId: { type: mongoose.Types.ObjectId, ref: 'Plan', required: false },
     steps: [{
-        title: { type: String, required: true },
-        completed: { type: Boolean, default: false }
+        title: { type: String, required: true }
     }],
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }

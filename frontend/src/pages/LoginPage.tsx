@@ -57,10 +57,9 @@ export default function LoginPage() {
                   error={touched.password ? errors.password : ''}
                 />
                 {error && <p className="chip text-danger">{error}</p>}
-                <p className="alternative text-ink-muted">
-                  Password reset isn't available yet — ask an admin to reset it
-                  for you.
-                </p>
+                <Link to="/forgot-password" className="alternative text-accent self-start">
+                  Forgot your password?
+                </Link>
               </div>
 
               <div className="fixed bottom-3 left-6 right-6 md:static md:max-w-86.25 md:mx-auto">

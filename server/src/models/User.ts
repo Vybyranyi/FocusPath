@@ -24,6 +24,13 @@ export interface IUser
      * token while the old one stayed just as valid.
      */
     refreshSessions: string[];
+    /**
+     * SHA-256 of the one outstanding password-reset token, never the token
+     * itself — the database is not a place a working reset link should be
+     * readable from. Cleared on use, and replaced by any newer request.
+     */
+    passwordResetHash?: string;
+    passwordResetExpires?: Date;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -50,6 +57,8 @@ const UserSchema: Schema = new Schema({
     displayName: { type: String, required: false, trim: true, maxlength: 30 },
     tokenVersion: { type: Number, default: 0 },
     refreshSessions: { type: [String], default: [], select: false },
+    passwordResetHash: { type: String, select: false, index: { sparse: true } },
+    passwordResetExpires: { type: Date, select: false },
 }, { timestamps: true });
 
 // Strips the hash on the way out so no controller has to remember to, and drops
@@ -59,6 +68,8 @@ UserSchema.set('toJSON', {
         delete ret.password;
         delete ret.tokenVersion;
         delete ret.refreshSessions;
+        delete ret.passwordResetHash;
+        delete ret.passwordResetExpires;
         delete ret.__v;
         return ret;
     },

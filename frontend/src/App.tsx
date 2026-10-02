@@ -1,34 +1,53 @@
 // Global styles are in src/index.css
 import { fetchCurrentUser } from "@store/authSlice";
 import { useAppDispatch, useAppSelector } from "@store/hooks";
-import { useEffect, useState, Suspense } from "react";
+import { lazy, useCallback, useEffect, useState, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router";
 import Layout from "@components/layout/Layout";
 import LoginPage from "@pages/LoginPage";
-import RegisterPage from "@pages/RegisterPage";
 import Main from "@pages/Main";
-import CreateHabit from "@pages/CreateHabit";
-import ProfilePage from "@pages/ProfilePage";
-import StatsPage from "@pages/StatsPage";
-import ExplorePage from "@pages/ExplorePage";
-import PlanDetailPage from "@pages/PlanDetailPage";
 import AppLoading from "@components/habit/AppLoading";
 import ProtectedRoute from "@components/layout/ProtectedRoute";
+import ServerUnreachable from "@components/layout/ServerUnreachable";
+
+// The two pages someone lands on are in the first bundle; the rest load when
+// first visited. Everything used to ship in one 1.1 MB file, so reaching the
+// login form meant downloading the create form, the library and the stats
+// page first. `<Suspense>` below was already in place and had nothing to wait on.
+const RegisterPage = lazy(() => import("@pages/RegisterPage"));
+const ForgotPasswordPage = lazy(() => import("@pages/ForgotPasswordPage"));
+const ResetPasswordPage = lazy(() => import("@pages/ResetPasswordPage"));
+const CreateHabit = lazy(() => import("@pages/CreateHabit"));
+const ProfilePage = lazy(() => import("@pages/ProfilePage"));
+const StatsPage = lazy(() => import("@pages/StatsPage"));
+const ExplorePage = lazy(() => import("@pages/ExplorePage"));
+const PlanDetailPage = lazy(() => import("@pages/PlanDetailPage"));
 
 function App() {
   const dispatch = useAppDispatch();
-  const { user, loading } = useAppSelector((state) => state.auth);
+  const { user, loading, unreachable } = useAppSelector((state) => state.auth);
   const [isAppReady, setIsAppReady] = useState(false);
 
-  useEffect(() => {
+  const checkSession = useCallback(() => {
     // The session lives in cookies the browser sends on its own, so there is
     // nothing to read locally — just ask who they belong to. A visitor with no
     // session gets a rejection, which is the normal path, not a failure.
+    setIsAppReady(false);
     dispatch(fetchCurrentUser()).finally(() => setIsAppReady(true));
   }, [dispatch]);
 
+  useEffect(() => {
+    checkSession();
+  }, [checkSession]);
+
   if (!isAppReady || (loading && !user)) {
     return <AppLoading />;
+  }
+
+  // Not the login form: nobody said this person is signed out, only that the
+  // server could not be asked.
+  if (!user && unreachable) {
+    return <ServerUnreachable onRetry={checkSession} />;
   }
 
   return (
@@ -37,6 +56,8 @@ function App() {
         <Routes>
           <Route path="/register" element={<RegisterPage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route
             path="/main/*"
             element={

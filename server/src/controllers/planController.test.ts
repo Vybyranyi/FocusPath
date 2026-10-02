@@ -256,6 +256,75 @@ describe('Plan Controller', () => {
         });
     });
 
+    describe('when the author deletes their account', () => {
+        const deleteAccount = (who: Client) =>
+            write(who, 'delete', '/auth/account').send({ password: 'password123' }).expect(200);
+
+        it('takes their plans out of the library', async () => {
+            const habit = await createHabit(client);
+            const plan = await publish(client, habit._id);
+
+            await deleteAccount(client);
+
+            const list = await request(app).get('/plans').expect(200);
+            expect(list.body.data.plans.map((p: { _id: string }) => p._id)).not.toContain(plan._id);
+        });
+
+        it('leaves nothing that names them', async () => {
+            const habit = await createHabit(client);
+            const plan = await publish(client, habit._id, { displayName: 'Ann' });
+
+            await deleteAccount(client);
+
+            const stored = await Plan.findById(plan._id);
+            expect(stored?.status).toBe('unpublished');
+            expect(stored?.author.displayName).toBeUndefined();
+        });
+
+        it('leaves a habit someone else took from them in place', async () => {
+            const taker = await signUp({ email: 'taker@example.com' });
+            const habit = await createHabit(client);
+            const plan = await publish(client, habit._id);
+            const taken = await write(taker, 'post', '/habits/from-plan')
+                .send({ planId: plan._id, startDate: dayKey(0) })
+                .expect(201);
+
+            await deleteAccount(client);
+
+            const still = await taker.agent.get(`/habits/${taken.body.data.habit._id}`).expect(200);
+            expect(still.body.data.habit.fromPlanId).toBe(plan._id);
+        });
+    });
+
+    describe('the day view', () => {
+        /**
+         * The day view is where a habit is published and edited from. Without
+         * these two links it offered to publish a habit a second time, and could
+         * not warn that an edit takes a clone out of its plan's score.
+         */
+        it('says which plan a habit was published as', async () => {
+            const habit = await createHabit(client);
+            const plan = await publish(client, habit._id);
+
+            const response = await client.agent.get(`/habits/daily?date=${dayKey(0)}`).expect(200);
+
+            expect(response.body.data.habits[0].publishedPlanId).toBe(plan._id);
+        });
+
+        it('says which plan a habit was taken from', async () => {
+            const author = await signUp({ email: 'author@example.com' });
+            const source = await createHabit(author);
+            const plan = await publish(author, source._id);
+            await write(client, 'post', '/habits/from-plan')
+                .send({ planId: plan._id, startDate: dayKey(0) })
+                .expect(201);
+
+            const response = await client.agent.get(`/habits/daily?date=${dayKey(0)}`).expect(200);
+
+            expect(response.body.data.habits[0].fromPlanId).toBe(plan._id);
+        });
+    });
+
     describe('GET /plans', () => {
         it('is readable with no session at all', async () => {
             const habit = await createHabit(client);
@@ -410,6 +479,27 @@ describe('Plan Controller', () => {
             const plan = await publish(stranger, habit._id);
 
             await write(client, 'delete', `/plans/${plan._id}`).expect(404);
+        });
+
+        /** Withdrawing used to be for good: the habit kept a link to a plan no one could see. */
+        it('lets the habit be published again', async () => {
+            const habit = await createHabit(client);
+            const first = await publish(client, habit._id);
+            await write(client, 'delete', `/plans/${first._id}`).expect(200);
+
+            const stored = await client.agent.get(`/habits/${habit._id}`).expect(200);
+            expect(stored.body.data.habit).not.toHaveProperty('publishedPlanId');
+
+            const second = await publish(client, habit._id);
+            expect(second._id).not.toBe(first._id);
+        });
+
+        it('does not free a habit whose plan a moderator removed', async () => {
+            const habit = await createHabit(client);
+            const plan = await publish(client, habit._id);
+            await Plan.updateOne({ _id: plan._id }, { $set: { status: 'removed' } });
+
+            await write(client, 'post', '/plans').send({ habitId: habit._id, category: 'learning' }).expect(409);
         });
     });
 

@@ -25,7 +25,7 @@ const user: User = {
 
 const renderCard = () =>
   renderWithProviders(<ProfileInfoCard />, {
-    preloadedState: { auth: { user, loading: false, error: null } },
+    preloadedState: { auth: { user, loading: false, error: null, unreachable: false } },
   });
 
 /** Opens the form, which is behind an Edit button until someone asks for it. */

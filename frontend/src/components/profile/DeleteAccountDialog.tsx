@@ -51,7 +51,7 @@ export default function DeleteAccountDialog({
       onOpenChange={close}
       tone="danger"
       title="Delete account"
-      description="Your habits and their history are deleted with it. This cannot be undone."
+      description="Your habits and their history are deleted with it, and any plans you published leave the library. This cannot be undone."
     >
       <div className="flex flex-col gap-4">
         <Input

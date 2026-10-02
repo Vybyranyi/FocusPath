@@ -5,14 +5,16 @@ import { Emoji } from 'react-apple-emojis';
 import { useAppDispatch } from '@store/hooks';
 import { toggleHabitStep, deleteHabit } from '@store/habitSlice';
 import { getHabitProgress } from '@/lib/habitProgress';
-import { dayKeyOf, fromDayKey } from '@/lib/dates';
+import { dayKeyOf, dayNumberOf, fromDayKey, relativeDayLabel, todayKey } from '@/lib/dates';
 import { isDone } from '@/lib/habitStatus';
 import type { HabitSummary } from '@shared/index';
 import { format, addDays } from 'date-fns';
 import Button from '@components/ui/Button';
 import PublishPlanSheet from '@components/explore/PublishPlanSheet';
+import EditHabitSheet from '@components/habit/EditHabitSheet';
 import { cn } from '@/lib/utils';
 import { useToast } from '@hooks/useToast';
+import { useNavigate } from 'react-router';
 
 interface IHabitDetailPopupProps {
   habit: HabitSummary;
@@ -32,6 +34,13 @@ const ShareIcon = () => (
     <path d="M4 12v7a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-7" />
     <polyline points="16 6 12 2 8 6" />
     <line x1="12" y1="2" x2="12" y2="15" />
+  </svg>
+);
+
+const PencilIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
   </svg>
 );
 
@@ -61,9 +70,37 @@ const CloseIcon = () => (
 export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupProps) {
   const dispatch = useAppDispatch();
   const { notify } = useToast();
+  const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * The menu closes when you click away from it or press Escape. Both were
+   * lost when the sheet moved to Radix: the menu stayed open until its own
+   * button was pressed again, and Escape closed the whole sheet under it.
+   * Escape is caught in the capture phase and stopped, so it closes only the
+   * menu and Radix's own Escape handling never sees it.
+   */
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.stopPropagation();
+      setMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown, true);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown, true);
+    };
+  }, [menuOpen]);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   /**
    * Radix hands focus back to its own `Dialog.Trigger`. This sheet is mounted
@@ -78,14 +115,20 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
     openerRef.current = document.activeElement as HTMLElement | null;
   }, []);
 
-  // Steps, when a habit has them, are a finer measure of the same thing.
+  // The bar measures the plan. It used to switch to the steps whenever a habit
+  // had any, on the grounds that they were "a finer measure of the same thing"
+  // — but a day's checklist says nothing about how far through ninety days
+  // someone is, and the number jumped between two meanings.
+  const progress = getHabitProgress(habit.completedCount, habit.duration);
+
   const steps = habit.steps ?? [];
-  const progress = steps.length > 0
-    ? getHabitProgress(steps.filter(step => step.completed).length, steps.length)
-    : getHabitProgress(habit.completedCount, habit.duration);
+  const ticked = new Set(habit.dayInfo.completedSteps);
+  const tickedCount = steps.filter(step => ticked.has(step._id)).length;
+  // Like marking the day itself, a checklist is not for a day that has not come.
+  const isFutureDay = dayKeyOf(habit.dayInfo.date) > todayKey();
 
   const handleToggleStep = (stepId: string) => {
-    dispatch(toggleHabitStep({ habitId: habit._id, stepId }));
+    dispatch(toggleHabitStep({ habitId: habit._id, stepId, date: habit.dayInfo.date }));
   };
 
   const handleDelete = () => {
@@ -115,7 +158,7 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
      * it. Two stacked sheets meant two overlays, two blurs and a card the user
      * could see but not reach; cancelling brings this one straight back.
      */
-    <Dialog.Root open={!publishing} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Dialog.Root open={!publishing && !editing} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay asChild>
           <motion.div
@@ -184,7 +227,7 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
               </div>
 
               <div className="flex items-center gap-2 shrink-0">
-                <div className="relative">
+                <div className="relative" ref={menuRef}>
                    <button
                      type="button"
                      onClick={() => setMenuOpen(!menuOpen)}
@@ -205,15 +248,38 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                        >
                          {/* Publishing lives beside deleting because this menu
                              is where things you do *to* a habit already are —
-                             and it is the only place a habit is fully in view. */}
+                             and it is the only place a habit is fully in view.
+                             A habit already published leads to its plan: the
+                             server refuses a second copy, and offering one only
+                             to refuse it after the form is filled in is worse
+                             than not offering it. */}
                          <button
                            type="button"
-                           onClick={() => { setMenuOpen(false); setPublishing(true); }}
+                           onClick={() => { setMenuOpen(false); setEditing(true); }}
                            className="w-full text-left px-4 py-3 body-bold text-ink hover:bg-canvas transition-colors flex items-center gap-2 cursor-pointer"
                          >
-                            <ShareIcon />
-                            Publish as a plan
+                            <PencilIcon />
+                            Edit habit
                          </button>
+                         {habit.publishedPlanId ? (
+                           <button
+                             type="button"
+                             onClick={() => { setMenuOpen(false); onClose(); navigate(`/explore/${habit.publishedPlanId}`); }}
+                             className="w-full text-left px-4 py-3 body-bold text-ink hover:bg-canvas transition-colors flex items-center gap-2 cursor-pointer"
+                           >
+                              <ShareIcon />
+                              View published plan
+                           </button>
+                         ) : (
+                           <button
+                             type="button"
+                             onClick={() => { setMenuOpen(false); setPublishing(true); }}
+                             className="w-full text-left px-4 py-3 body-bold text-ink hover:bg-canvas transition-colors flex items-center gap-2 cursor-pointer"
+                           >
+                              <ShareIcon />
+                              Publish as a plan
+                           </button>
+                         )}
                          <button
                            type="button"
                            onClick={() => { setMenuOpen(false); setConfirmingDelete(true); }}
@@ -288,30 +354,72 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                 </div>
             )}
 
-            {/* Steps List */}
-            {steps.length > 0 ? (
+            <div className="grid grid-cols-2 gap-3">
+                <div className="bg-canvas rounded-2xl p-5 flex flex-col justify-center items-center border border-line">
+                    <p className="chip text-ink-muted mb-2">Current streak</p>
+                    <p className="display-3 text-ink leading-none">{habit.currentStreak}</p>
+                    <p className="chip text-ink-muted mt-1">Days</p>
+                </div>
+                <div
+                    className={cn(
+                      'rounded-2xl p-5 flex flex-col justify-center items-center border transition-colors',
+                      isDone(habit.dayInfo)
+                        ? 'bg-success-soft border-success/30'
+                        : 'bg-canvas border-line',
+                    )}
+                >
+                    {/* The day on screen, which is only sometimes today: the
+                        sheet opens from whichever day is selected, and this
+                        tile said "Today" for all of them. */}
+                    <p className={cn('chip mb-2', isDone(habit.dayInfo) ? 'text-success' : 'text-ink-muted')}>
+                      {relativeDayLabel(dayKeyOf(habit.dayInfo.date))}
+                    </p>
+                    {isDone(habit.dayInfo) ? (
+                         <span className="flex flex-col items-center gap-1 text-success">
+                           <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                             <polyline points="20 6 9 17 4 12" />
+                           </svg>
+                           <span className="chip">Done</span>
+                         </span>
+                    ) : (
+                        <p className="title text-ink-2 text-center leading-tight">
+                           {habit.dayInfo.dayTitle || `Day ${dayNumberOf(habit.startDate, habit.dayInfo.date)}`}
+                        </p>
+                    )}
+                </div>
+            </div>
+
+            {/* The day's checklist */}
+            {steps.length > 0 && (
                 <div className="flex flex-col gap-3">
-                   <p className="field-label text-ink-2">Steps to complete</p>
+                   <div className="flex justify-between items-baseline">
+                     <p className="field-label text-ink-2">Checklist for this day</p>
+                     <p className="alternative text-ink-muted">{tickedCount} of {steps.length}</p>
+                   </div>
+                   {isFutureDay && (
+                     <p className="alternative text-ink-muted">This day has not come yet.</p>
+                   )}
                    <ul className="flex flex-col gap-2">
-                   {habit.steps!.map((step) => (
+                   {steps.map((step) => (
                        <li key={step._id}>
                          <button
                             type="button"
-                            aria-pressed={step.completed}
+                            aria-pressed={ticked.has(step._id)}
+                            disabled={isFutureDay}
                             onClick={() => handleToggleStep(step._id)}
                             className={cn(
-                              'w-full flex items-center gap-4 p-3.5 rounded-2xl cursor-pointer text-left border',
+                              'w-full flex items-center gap-4 p-3.5 rounded-2xl cursor-pointer text-left border disabled:cursor-not-allowed disabled:opacity-60',
                               'transition-colors duration-(--duration-base)',
-                              step.completed
+                              ticked.has(step._id)
                                  ? 'bg-success-soft border-success/30'
                                  : 'bg-surface border-line hover:border-accent/30',
                             )}
                          >
                             <span className={cn(
                               'w-6 h-6 rounded-lg flex items-center justify-center shrink-0 transition-colors',
-                              step.completed ? 'bg-success text-on-accent' : 'border-2 border-line-strong',
+                              ticked.has(step._id) ? 'bg-success text-on-accent' : 'border-2 border-line-strong',
                             )}>
-                                {step.completed && (
+                                {ticked.has(step._id) && (
                                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                                         <polyline points="20 6 9 17 4 12"></polyline>
                                     </svg>
@@ -319,7 +427,7 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                             </span>
                             <span className={cn(
                               'body-bold transition-colors',
-                              step.completed ? 'text-ink-muted line-through' : 'text-ink',
+                              ticked.has(step._id) ? 'text-ink-muted line-through' : 'text-ink',
                             )}>
                                 {step.title}
                             </span>
@@ -328,40 +436,16 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                    ))}
                    </ul>
                 </div>
-            ) : (
-                <div className="grid grid-cols-2 gap-3">
-                   <div className="bg-canvas rounded-2xl p-5 flex flex-col justify-center items-center border border-line">
-                       <p className="chip text-ink-muted mb-2">Current streak</p>
-                       <p className="display-3 text-ink leading-none">{habit.currentStreak}</p>
-                       <p className="chip text-ink-muted mt-1">Days</p>
-                   </div>
-                   <div
-                       className={cn(
-                         'rounded-2xl p-5 flex flex-col justify-center items-center border transition-colors',
-                         isDone(habit.dayInfo)
-                           ? 'bg-success-soft border-success/30'
-                           : 'bg-canvas border-line',
-                       )}
-                   >
-                       <p className={cn('chip mb-2', isDone(habit.dayInfo) ? 'text-success' : 'text-ink-muted')}>Today</p>
-                       {isDone(habit.dayInfo) ? (
-                            <span className="flex flex-col items-center gap-1 text-success">
-                              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                                <polyline points="20 6 9 17 4 12" />
-                              </svg>
-                              <span className="chip">Done</span>
-                            </span>
-                       ) : (
-                           <p className="title text-ink-2 text-center leading-tight">
-                              {habit.dayInfo.dayTitle || `Day ${habit.currentStreak}`}
-                           </p>
-                       )}
-                   </div>
-                </div>
             )}
           </motion.div>
         </Dialog.Content>
       </Dialog.Portal>
+
+      {/* Mounted only while open, so every edit starts from the habit as it is
+          now rather than from whatever was typed and abandoned last time. */}
+      {editing && (
+        <EditHabitSheet habit={habit} open={editing} onOpenChange={setEditing} />
+      )}
 
       <PublishPlanSheet
         habit={habit}
