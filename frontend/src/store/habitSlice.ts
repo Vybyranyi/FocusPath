@@ -5,6 +5,7 @@ import type {
   Habit,
   HabitDay,
   HabitSummary,
+  JournalEntry,
   Target,
   TimeOfDay,
 } from "@shared/index";
@@ -111,9 +112,12 @@ export const getHabitsForDate = createAsyncThunk(
       // The client's own today travels with the request: the server reads days
       // in UTC, and without this a user west of Greenwich is told the day they
       // are still living has been missed.
-      return await apiRequest<{ date: string; habits: HabitSummary[] }>(
-        `/habits/daily?date=${day}&today=${todayKey()}`,
-      );
+      return await apiRequest<{
+        date: string;
+        habits: HabitSummary[];
+        /** The day's own journal entry, so the day view needs no second request. */
+        journal?: JournalEntry | null;
+      }>(`/habits/daily?date=${day}&today=${todayKey()}`);
     } catch (error) {
       return rejectWithValue(errorMessage(error));
     }

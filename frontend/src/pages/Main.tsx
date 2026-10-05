@@ -14,7 +14,8 @@ import { useNavigate } from "react-router";
 import HabitCard      from "@components/habit/HabitCard";
 import DatePicker     from "@components/pickers/DatePicker";
 import ProgressBanner from "@components/habit/ProgressBanner";
-import { toDayKey }   from "@/lib/dates";
+import JournalCard from "@components/journal/JournalCard";
+import { todayKey, toDayKey } from "@/lib/dates";
 import Button        from "@components/ui/Button";
 import { HabitCardSkeleton } from "@components/ui/Skeleton";
 
@@ -35,6 +36,7 @@ export default function Main() {
   const { habitsForDate, loading, error } = useAppSelector((s) => s.habit);
   const { currentWeekStart } = useAppSelector((s) => s.calendar);
   const groups = useAppSelector(selectHabitGroups);
+  const { entry, entryDay } = useAppSelector((s) => s.journal);
 
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [direction, setDirection] = useState(0);
@@ -188,6 +190,14 @@ export default function Main() {
         <AnimatePresence mode="wait" custom={direction}>
           {renderContent()}
         </AnimatePresence>
+
+        {/* The day's own entry, below its habits. Shown for a day that has
+            begun — there is nothing to say about tomorrow — and only once the
+            answer for *this* day is in, so an entry from the day before is
+            never shown, and cannot be saved, against this one. */}
+        {selectedKey <= todayKey() && entryDay === selectedKey && (
+          <JournalCard key={selectedKey} day={selectedKey} entry={entry} />
+        )}
       </div>
     </div>
   );
