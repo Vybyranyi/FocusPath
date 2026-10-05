@@ -40,6 +40,13 @@ export interface WeeklyHabitFacts {
     previousPercentage?: number;
     streak: number;
     streakUnit: "day" | "week";
+    /**
+     * Days of the week (1 = Monday) the habit is most and least often done on,
+     * over the last two months. Only for a habit scheduled on particular days,
+     * and only when there is enough of it for the two to differ.
+     */
+    bestWeekday?: number;
+    worstWeekday?: number;
 }
 
 export interface WeeklyReviewFacts {
