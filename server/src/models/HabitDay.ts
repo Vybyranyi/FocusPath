@@ -1,0 +1,57 @@
+import mongoose, { Document, Schema } from 'mongoose';
+import type { DayStatus } from '@shared/index';
+
+/**
+ * The statuses a day can be *stored* with. `pending` is the absence of a
+ * record, and `missed` is derived from the date — see `DayStatus` in `shared/`.
+ */
+export const LOGGED_STATUSES: readonly Exclude<DayStatus, 'pending'>[] = ['done', 'failed'];
+
+/** Largest quantity a day may hold. Wide enough for steps, narrow enough to catch a slipped finger. */
+export const MAX_DAY_VALUE = 10_000;
+
+export interface IHabitDay extends Document {
+    habitId: mongoose.Types.ObjectId;
+    userId: mongoose.Types.ObjectId;
+    /** Midnight UTC of the calendar day. */
+    day: Date;
+    /** Set by marking a day of a habit that has no quantity. */
+    status?: Exclude<DayStatus, 'pending'>;
+    /** Set by counting, for a habit that has a target. */
+    value?: number;
+    completedSteps: mongoose.Types.ObjectId[];
+}
+
+/**
+ * The log of what happened, one document per habit per day *something* happened
+ * on. A day with no document is pending, or missed once it is over.
+ *
+ * Kept out of the habit on purpose: a habit with no end would carry an array
+ * that only ever grew, and ship it in every response. The log is also the one
+ * thing the journal and the coach read in bulk.
+ */
+const HabitDaySchema = new Schema({
+    habitId: { type: mongoose.Types.ObjectId, ref: 'Habit', required: true },
+    // Duplicated from the habit so ownership is a property of the query itself:
+    // a day can never be read or written without naming whose it is.
+    userId: { type: mongoose.Types.ObjectId, ref: 'User', required: true },
+    day: { type: Date, required: true },
+    status: { type: String, enum: LOGGED_STATUSES },
+    value: { type: Number, min: 0, max: MAX_DAY_VALUE },
+    completedSteps: { type: [mongoose.Types.ObjectId], default: [] },
+});
+
+HabitDaySchema.index({ habitId: 1, day: 1 }, { unique: true });
+HabitDaySchema.index({ userId: 1, day: 1 });
+
+HabitDaySchema.set('toJSON', {
+    transform: (_doc, ret: Record<string, unknown>) => {
+        delete ret.userId;
+        delete ret.__v;
+        return ret;
+    },
+});
+
+const HabitDay = mongoose.model<IHabitDay>('HabitDay', HabitDaySchema);
+
+export default HabitDay;
