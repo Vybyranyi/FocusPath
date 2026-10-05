@@ -17,6 +17,7 @@ import {
 import type { Habit, HabitDay } from "@shared/index";
 import { publishPlan, unpublishPlan } from "@store/plansSlice";
 import { makeStore } from "@store/store";
+import { DEFAULT_SCHEDULE } from "@/lib/schedule";
 import type { CreateHabitFormValues } from "@/types/forms";
 import { habitState, makeHabitSummary } from "../testUtils";
 
@@ -53,6 +54,8 @@ const formValues = (overrides: Partial<CreateHabitFormValues> = {}): CreateHabit
   startDate: new Date(2026, 7, 7),
   autoDuration: false,
   duration: "7",
+  noEnd: false,
+  schedule: DEFAULT_SCHEDULE,
   habitType: "build",
   ...overrides,
 });
@@ -396,6 +399,59 @@ describe("habitSlice", () => {
       );
 
       expect(result.payload).toBe("A pause cannot begin in the past");
+    });
+  });
+
+  describe("the schedule a new habit is sent with", () => {
+    it("sends a daily rhythm with no goal by default", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: {} }));
+
+      await makeStore().dispatch(createHabit(formValues()));
+
+      expect(bodyAt(0)).toMatchObject({ frequency: { kind: "daily" }, timeOfDay: "anytime", sessions: 7 });
+      expect(bodyAt(0)).not.toHaveProperty("target");
+    });
+
+    it("sends the days a weekdays habit was given, in order", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: {} }));
+
+      await makeStore().dispatch(
+        createHabit(formValues({ schedule: { ...DEFAULT_SCHEDULE, frequencyKind: "weekdays", weekdays: [5, 1, 3] } })),
+      );
+
+      expect(bodyAt(0).frequency).toEqual({ kind: "weekdays", days: [1, 3, 5] });
+    });
+
+    it("sends a weekly rhythm as a number", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: {} }));
+
+      await makeStore().dispatch(
+        createHabit(formValues({ schedule: { ...DEFAULT_SCHEDULE, frequencyKind: "weekly", timesPerWeek: "4" } })),
+      );
+
+      expect(bodyAt(0).frequency).toEqual({ kind: "weekly", times: 4 });
+    });
+
+    it("sends the goal and the part of the day", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: {} }));
+
+      await makeStore().dispatch(
+        createHabit(
+          formValues({
+            schedule: { ...DEFAULT_SCHEDULE, counted: true, targetValue: "8", targetUnit: " glasses ", timeOfDay: "morning" },
+          }),
+        ),
+      );
+
+      expect(bodyAt(0)).toMatchObject({ target: { value: 8, unit: "glasses" }, timeOfDay: "morning" });
+    });
+
+    it("sends no number of sessions for a habit with no end", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: {} }));
+
+      await makeStore().dispatch(createHabit(formValues({ noEnd: true, duration: "" })));
+
+      expect(bodyAt(0)).not.toHaveProperty("sessions");
     });
   });
 

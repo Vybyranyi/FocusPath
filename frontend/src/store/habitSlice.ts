@@ -12,6 +12,7 @@ import type { CreateHabitFormValues, StepDraft } from "@/types/forms";
 import { apiRequest, errorMessage } from "@api/client";
 import { dayKeyOf, toDayKey, todayKey } from "@/lib/dates";
 import { publishPlan, unpublishPlan } from "@store/plansSlice";
+import { draftFrequency, draftTarget } from "@/lib/schedule";
 
 export interface IHabitSlice {
   /** Every habit, as `GET /habits` returns them. */
@@ -61,7 +62,14 @@ const toHabitBody = (values: CreateHabitFormValues, allowAutoDuration = false) =
   startDate: values.startDate ? toDayKey(values.startDate) : todayKey(),
   // Absent means "no end" on the manual route and "let the model choose" on the
   // AI one, so the two are told apart by `null`, which only the AI route reads.
-  sessions: allowAutoDuration && values.autoDuration ? null : Number(values.duration),
+  sessions: values.noEnd
+    ? undefined
+    : allowAutoDuration && values.autoDuration
+      ? null
+      : Number(values.duration),
+  frequency: draftFrequency(values.schedule),
+  target: draftTarget(values.schedule),
+  timeOfDay: values.schedule.timeOfDay,
   type: values.habitType,
   color: values.color,
   icon: values.emoji,

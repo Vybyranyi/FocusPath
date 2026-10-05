@@ -5,10 +5,12 @@ import ColorPicker from "@components/pickers/ColorPicker";
 import DurationPicker from "@components/pickers/DurationPicker";
 import EmojiPicker from "@components/pickers/EmojiPicker";
 import HabitTypePicker from "@components/pickers/HabitTypePicker";
+import ScheduleFields from "@components/pickers/ScheduleFields";
 import Input from "@components/ui/Input";
 import WeekDatePicker from "@components/pickers/WeekDatePicker";
 import StepsEditor from "@components/habit/StepsEditor";
 import { STEP_TITLE_MAX } from "@/lib/steps";
+import { DEFAULT_SCHEDULE, scheduleProblems } from "@/lib/schedule";
 import { createAIHabit, createHabit } from "@store/habitSlice";
 import { useAppDispatch, useAppSelector } from "@store/hooks";
 import { Form, Formik } from "formik";
@@ -40,17 +42,31 @@ const validationSchema = Yup.object({
       return sel >= today;
     }),
   autoDuration: Yup.boolean(),
-  duration: Yup.string().when("autoDuration", {
-    is: false,
+  noEnd: Yup.boolean(),
+  // Needed only when there is a programme to size: not for a habit with no end,
+  // and not when the AI is choosing.
+  duration: Yup.string().when(["autoDuration", "noEnd"], {
+    is: (autoDuration: boolean, noEnd: boolean) => !autoDuration && !noEnd,
     then: (s) =>
       s
-        .required("Duration is required")
+        .required("Number of sessions is required")
         .matches(/^\d+$/, "Must be a number")
-        .test("range", "Must be 1–365 days", (v) => {
+        .test("range", "Must be 1–365 sessions", (v) => {
           const n = parseInt(v ?? "");
           return n >= 1 && n <= 365;
         }),
     otherwise: (s) => s.notRequired(),
+  }),
+  // The same checks the edit sheet and the take-a-plan sheet make, from one
+  // place, reported as one error per field.
+  // `mixed`, not `object`: an object schema with no shape would cast the draft
+  // down to an empty one before the test ever saw it.
+  schedule: Yup.mixed().test("schedule", "Check the schedule", (value, context) => {
+    const problems = scheduleProblems(value as CreateHabitFormValues["schedule"]);
+    const first = Object.entries(problems)[0];
+    return first
+      ? context.createError({ path: `schedule.${first[0]}`, message: first[1] })
+      : true;
   }),
   steps: Yup.array().of(
     Yup.object({ title: Yup.string().max(STEP_TITLE_MAX, `Each step must be ${STEP_TITLE_MAX} characters or fewer`) }),
@@ -59,6 +75,12 @@ const validationSchema = Yup.object({
     .oneOf(["build", "quit"])
     .required("Habit type is required"),
 });
+
+/** Formik reports a nested object's errors as an object; the fields want a flat shape. */
+const scheduleErrors = (errors: unknown) =>
+  typeof errors === "object" && errors !== null
+    ? (errors as Record<string, string>)
+    : {};
 
 const initialValues: CreateHabitFormValues = {
   color: "",
@@ -70,6 +92,8 @@ const initialValues: CreateHabitFormValues = {
   startDate: new Date(),
   autoDuration: false,
   duration: "",
+  noEnd: false,
+  schedule: DEFAULT_SCHEDULE,
   habitType: "build",
 };
 
@@ -189,9 +213,21 @@ export default function CreateHabit() {
                     }}
                     error={touched.startDate ? errors.startDate : ""}
                   />
+                  <ScheduleFields
+                    value={values.schedule}
+                    type={values.habitType}
+                    problems={scheduleErrors(errors.schedule)}
+                    onChange={(next) => setFieldValue("schedule", next)}
+                  />
                   <DurationPicker
                     autoDuration={values.autoDuration}
+                    noEnd={values.noEnd}
                     duration={values.duration}
+                    onNoEndToggle={() => {
+                      setFieldValue("noEnd", !values.noEnd);
+                      // A habit with no end has nothing for the AI to write.
+                      if (!values.noEnd) setFieldValue("autoDuration", false);
+                    }}
                     onAiToggle={() => {
                       setFieldValue("autoDuration", !values.autoDuration);
                       if (!values.autoDuration) {
@@ -233,7 +269,7 @@ export default function CreateHabit() {
                       type="ai"
                       size="large"
                       htmlType="submit"
-                      disabled={creating !== null}
+                      disabled={creating !== null || values.noEnd}
                       onClick={() => { intent.current = "ai"; }}
                     >
                       {creating === "ai" ? "Creating..." : "Create by AI"}
@@ -242,8 +278,14 @@ export default function CreateHabit() {
 
                   {values.autoDuration && creating === null && (
                     <p className="alternative text-ink-muted mt-1">
-                      Only the AI can pick the number of days. Turn the switch
+                      Only the AI can pick the number of sessions. Turn the switch
                       off to create this habit yourself.
+                    </p>
+                  )}
+                  {values.noEnd && creating === null && (
+                    <p className="alternative text-ink-muted mt-1">
+                      A habit with no end has no programme, so there is nothing
+                      for the AI to write. It also cannot be published as a plan.
                     </p>
                   )}
                   {creating !== null && (

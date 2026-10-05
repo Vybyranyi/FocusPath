@@ -61,13 +61,13 @@ describe("CreateHabit", () => {
    * pressed", so pressing the button flipped the switch and hid the days field.
    */
   describe("the two AI choices", () => {
-    it("leaves the days switch alone when “Create by AI” is pressed", async () => {
+    it("leaves the sessions switch alone when “Create by AI” is pressed", async () => {
       renderWithProviders(<CreateHabit />);
-      fireEvent.change(screen.getByLabelText("Number of days"), { target: { value: "30" } });
+      fireEvent.change(screen.getByLabelText("Number of sessions"), { target: { value: "30" } });
 
       fireEvent.click(screen.getByRole("button", { name: /create by ai/i }));
 
-      await waitFor(() => expect(screen.getByLabelText("Number of days")).toHaveValue(30));
+      await waitFor(() => expect(screen.getByLabelText("Number of sessions")).toHaveValue(30));
       expect(screen.getByRole("switch", { name: /let ai choose/i })).toHaveAttribute("aria-checked", "false");
     });
 
@@ -85,7 +85,102 @@ describe("CreateHabit", () => {
       fireEvent.click(screen.getByRole("switch", { name: /let ai choose/i }));
 
       expect(screen.getByRole("button", { name: /^create$/i })).toBeDisabled();
-      expect(screen.getByText(/only the ai can pick the number of days/i)).toBeInTheDocument();
+      expect(screen.getByText(/only the ai can pick the number of sessions/i)).toBeInTheDocument();
+    });
+  });
+
+  describe("a habit with no end", () => {
+    it("puts the sessions field away and turns the AI off, with the reason", () => {
+      renderWithProviders(<CreateHabit />);
+
+      fireEvent.click(screen.getByRole("switch", { name: /no end/i }));
+
+      expect(screen.queryByLabelText("Number of sessions")).not.toBeInTheDocument();
+      expect(screen.queryByRole("switch", { name: /let ai choose/i })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /create by ai/i })).toBeDisabled();
+      expect(screen.getByText(/nothing for the ai to write/i)).toBeInTheDocument();
+    });
+
+    it("lets the AI switch go if it was on", () => {
+      renderWithProviders(<CreateHabit />);
+      fireEvent.click(screen.getByRole("switch", { name: /let ai choose/i }));
+
+      fireEvent.click(screen.getByRole("switch", { name: /no end/i }));
+
+      expect(screen.getByRole("button", { name: /^create$/i })).toBeEnabled();
+    });
+  });
+
+  describe("the schedule", () => {
+    it("starts daily, with no goal", () => {
+      renderWithProviders(<CreateHabit />);
+
+      expect(screen.getByRole("radio", { name: "Every day" })).toHaveAttribute("aria-checked", "true");
+      expect(screen.queryByLabelText("Daily goal")).not.toBeInTheDocument();
+    });
+
+    it("offers the days of the week for a weekdays habit", () => {
+      renderWithProviders(<CreateHabit />);
+
+      fireEvent.click(screen.getByRole("radio", { name: "Days" }));
+      fireEvent.click(screen.getByRole("button", { name: "Mon" }));
+
+      expect(screen.getByRole("button", { name: "Mon" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("button", { name: "Tue" })).toHaveAttribute("aria-pressed", "false");
+    });
+
+    it("says a weekdays habit needs a day", async () => {
+      renderWithProviders(<CreateHabit />);
+
+      fireEvent.click(screen.getByRole("radio", { name: "Days" }));
+
+      expect(await screen.findByText("Choose at least one day")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Tue" }));
+
+      await waitFor(() => expect(screen.queryByText("Choose at least one day")).not.toBeInTheDocument());
+    });
+
+    it("says a counted habit needs a goal and a unit", async () => {
+      renderWithProviders(<CreateHabit />);
+
+      fireEvent.click(screen.getByRole("switch", { name: "Count a quantity" }));
+
+      expect(await screen.findByText("Must be greater than zero")).toBeInTheDocument();
+    });
+
+    it("asks how many times a week for a weekly habit", () => {
+      renderWithProviders(<CreateHabit />);
+
+      fireEvent.click(screen.getByRole("radio", { name: "Per week" }));
+
+      expect(screen.getByLabelText("Times per week")).toHaveValue(3);
+    });
+
+    it("asks for a goal and a unit once a quantity is counted", () => {
+      renderWithProviders(<CreateHabit />);
+
+      fireEvent.click(screen.getByRole("switch", { name: "Count a quantity" }));
+
+      expect(screen.getByLabelText("Daily goal")).toBeInTheDocument();
+      expect(screen.getByLabelText("Unit")).toBeInTheDocument();
+    });
+
+    it("words the goal as a limit for a habit to quit", () => {
+      renderWithProviders(<CreateHabit />);
+      fireEvent.click(screen.getByRole("switch", { name: "Count a quantity" }));
+
+      fireEvent.click(screen.getByRole("radio", { name: "Quit" }));
+
+      expect(screen.getByLabelText("Daily goal")).toHaveAttribute("placeholder", "At most");
+      expect(screen.getByText(/a clean day is zero/i)).toBeInTheDocument();
+    });
+
+    it("offers the parts of the day", () => {
+      renderWithProviders(<CreateHabit />);
+
+      expect(screen.getByRole("radio", { name: "Morning" })).toBeInTheDocument();
+      expect(screen.getByRole("radio", { name: "Anytime" })).toHaveAttribute("aria-checked", "true");
     });
   });
 });
