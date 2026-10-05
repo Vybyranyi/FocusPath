@@ -127,6 +127,16 @@ app gains a build step or a runtime dependency. If you need a shared *value*
 `tokenVersion`, `refreshSessions`, `userId`, `schemaVersion` and `__v`. Do not re-add those fields to a response
 by hand, and do not bypass `toJSON` with `.lean()` without checking what leaks.
 
+**The coach counts in code; the model only words it.** Every figure and pattern the
+coach states comes from pure functions in `server/src/services/coachInsights.ts`,
+with thresholds that are constants, not settings. `coachAiService.ts` hands a
+model those facts and rejects a reply that is the wrong shape or names a number
+that was not in them. What is sent is fixed: habits by number and title, never an
+id, name or email; the person's own words only with `coachReadsNotes`. The log
+gets the kind, model, tokens and time — never the facts, the reply or the notes.
+A card is claimed (created `candidate`) *before* the model is asked, so the unique
+index on (user, kind, key) is the rate limit. See `docs/AI_COACH.md`.
+
 ## Path aliases: three places, kept in sync
 
 Aliases are declared separately for the compiler, the test runner and the
@@ -227,7 +237,7 @@ Order matters; the codebase follows it without exception.
 
 ## Frontend conventions
 
-- State is Redux Toolkit slices (`auth`, `habit`, `calendar`, `plans`, `journal`). Derived
+- State is Redux Toolkit slices (`auth`, `habit`, `calendar`, `plans`, `journal`, `coach`). Derived
   values go through `createSelector` in `store/selectors.ts` so they are
   computed once per change rather than per render; plain field selectors are not
   memoised and should not be.
