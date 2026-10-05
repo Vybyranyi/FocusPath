@@ -71,6 +71,51 @@ const slotsOf = (habit: IHabit, logs: LoggedDay[], today: DayNumber): CoachSlot[
 };
 
 /**
+ * One habit as the coach sees it, and what can be done about it. Separate from
+ * the loader so a single mark can be checked without reading everything.
+ */
+export const describeHabit = (
+    habit: IHabit,
+    logs: LoggedDay[],
+    today: DayNumber,
+): { coach: CoachHabit; context: HabitContext } => {
+    const { timeline, streak } = evaluate(habit, logs, today);
+    const rules = rulesOf(habit);
+    const current = rules[rules.length - 1];
+
+    const pausedToday = timeline.cells.get(today)?.kind === 'paused';
+    let nextSession: number | undefined;
+    if (habit.program) {
+        for (const cell of [...timeline.cells.values()].sort((a, b) => a.day - b.day)) {
+            if (cell.day >= today && cell.session !== undefined && cell.state !== 'done') {
+                nextSession = cell.session;
+                break;
+            }
+        }
+    }
+
+    return {
+        context: { doc: habit, active: !pausedToday && !timeline.completed, nextSession },
+        coach: {
+            key: String(habit._id),
+            title: habit.title,
+            type: habit.type,
+            frequency: current.frequency,
+            target: current.target,
+            hasProgram: Boolean(habit.program),
+            startDay: toDayNumber(habit.startDate),
+            ruleFrom: toDayNumber(current.effectiveFrom),
+            slots: slotsOf(habit, logs, today),
+            streak: streak.value,
+            streakUnit: streak.unit,
+            reasons: logs.flatMap(log =>
+                log.failureReason ? [{ day: toDayNumber(log.day), code: log.failureReason.code }] : [],
+            ),
+        },
+    };
+};
+
+/**
  * Everything the coach counts, gathered in three reads: the habits, the whole
  * log, and the last stretch of the journal. Pure from here on — the detectors
  * never see a document.
@@ -99,45 +144,9 @@ export const loadCoachContext = async (userId: string, today: DayNumber): Promis
 
     const contexts = new Map<string, HabitContext>();
     const coachHabits: CoachHabit[] = habits.map(habit => {
-        const key = String(habit._id);
-        const own = byHabit.get(key) ?? [];
-        const { timeline, streak } = evaluate(habit, own, today);
-        const rules = rulesOf(habit);
-        const current = rules[rules.length - 1];
-
-        const pausedToday = timeline.cells.get(today)?.kind === 'paused';
-        let nextSession: number | undefined;
-        if (habit.program) {
-            for (const cell of [...timeline.cells.values()].sort((a, b) => a.day - b.day)) {
-                if (cell.day >= today && cell.session !== undefined && cell.state !== 'done') {
-                    nextSession = cell.session;
-                    break;
-                }
-            }
-        }
-
-        contexts.set(key, {
-            doc: habit,
-            active: !pausedToday && !timeline.completed,
-            nextSession,
-        });
-
-        return {
-            key,
-            title: habit.title,
-            type: habit.type,
-            frequency: current.frequency,
-            target: current.target,
-            hasProgram: Boolean(habit.program),
-            startDay: toDayNumber(habit.startDate),
-            ruleFrom: toDayNumber(current.effectiveFrom),
-            slots: slotsOf(habit, own, today),
-            streak: streak.value,
-            streakUnit: streak.unit,
-            reasons: own.flatMap(log =>
-                log.failureReason ? [{ day: toDayNumber(log.day), code: log.failureReason.code }] : [],
-            ),
-        };
+        const described = describeHabit(habit, byHabit.get(String(habit._id)) ?? [], today);
+        contexts.set(String(habit._id), described.context);
+        return described.coach;
     });
 
     const journal: CoachJournalDay[] = journalRows.map(row => ({

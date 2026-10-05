@@ -3,6 +3,7 @@ import cors from "cors";
 import helmet from "helmet";
 import cookieParser from "cookie-parser";
 import pinoHttp from "pino-http";
+import coachRoutes from "@routes/coachRouter";
 import authRoutes from "@routes/authRoutes";
 import habitRoutes from "@routes/habitRouter";
 import healthRoutes from "@routes/healthRouter";
@@ -73,6 +74,7 @@ app.use(apiLimiter);
 
 //Routes
 app.use("/auth", authRoutes);
+app.use("/coach", coachRoutes);
 app.use("/habits", habitRoutes);
 app.use("/journal", journalRoutes);
 app.use("/plans", planRoutes);

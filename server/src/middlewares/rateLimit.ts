@@ -80,3 +80,17 @@ export const publishLimiter = rateLimit({
     skip,
     message: refusal('Publishing is limited to 5 plans per day'),
 });
+
+/**
+ * The coach. The real limit is structural — a card is unique per period, so
+ * asking again generates nothing — and this is only a ceiling for a client stuck
+ * in a loop, keyed by user for the same reason the other paid endpoints are.
+ */
+export const coachLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    limit: 30,
+    keyGenerator: req => req.userId ?? ipKeyGenerator(req.ip ?? ''),
+    ...headers,
+    skip,
+    message: refusal('The coach is limited to 30 requests per hour'),
+});

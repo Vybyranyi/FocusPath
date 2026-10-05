@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'crypto';
 import User, { type IUser } from '@models/User';
 import Habit from '@models/Habit';
 import HabitDay from '@models/HabitDay';
+import CoachCard from '@models/CoachCard';
 import JournalEntry from '@models/JournalEntry';
 import { groupByHabit, presentExport, type LoggedDay } from '@services/habitView';
 import { toDayNumber } from '@services/habitTimeline';
@@ -265,10 +266,11 @@ export const changePassword = async (
  */
 export const exportAccount = async (userId: string | undefined) => {
     const user = await requireUser(userId);
-    const [habits, logs, journal, plans] = await Promise.all([
+    const [habits, logs, journal, coachCards, plans] = await Promise.all([
         Habit.find({ userId }).sort({ createdAt: 1 }),
         HabitDay.find({ userId }).lean<LoggedDay[]>(),
         JournalEntry.find({ userId }).sort({ day: 1 }),
+        CoachCard.find({ userId }).sort({ createdAt: 1 }),
         Plan.find({ 'author.userId': userId }).sort({ createdAt: 1 }),
     ]);
 
@@ -282,6 +284,7 @@ export const exportAccount = async (userId: string | undefined) => {
         user,
         habits: habits.map(habit => presentExport(habit, byHabit.get(String(habit._id)) ?? [], today)),
         journal,
+        coachCards,
         plans,
     };
 };
@@ -417,5 +420,7 @@ export const deleteAccount = async (
     await HabitDay.deleteMany({ userId });
     // The most private thing the account holds: gone with it, not softly.
     await JournalEntry.deleteMany({ userId });
+    // Built from that journal, so they go with it.
+    await CoachCard.deleteMany({ userId });
     await User.findByIdAndDelete(userId);
 };

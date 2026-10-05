@@ -77,6 +77,10 @@ describe('needsRecalibration', () => {
         expect(needsRecalibration(failing({ ruleFrom: TODAY - 3 }), TODAY)).toBe(false);
         expect(needsRecalibration(failing({ ruleFrom: TODAY - 7 }), TODAY)).toBe(true);
     });
+
+    it('does not count the rule a habit began with as a change', () => {
+        expect(needsRecalibration(failing({ startDay: TODAY - 4, ruleFrom: TODAY - 4 }), TODAY)).toBe(true);
+    });
 });
 
 describe('proposeRecalibration', () => {

@@ -210,12 +210,14 @@ export const proposeRecalibration = (habit: CoachHabit, today: DayNumber): Propo
 };
 
 /**
- * Whether a habit has earned a recalibration offer: failed three slots running,
- * not paused away from the problem, not already over, and not changed lately.
+ * Whether a habit has earned a recalibration offer: failed three slots running
+ * and not changed lately. (Paused or finished habits are ruled out by the caller,
+ * which knows the calendar.) The rule it started with is not a "change": a habit
+ * begun last week and failed since has had all the run it is going to get.
  */
 export const needsRecalibration = (habit: CoachHabit, today: DayNumber): boolean =>
     trailingFailures(habit) >= FAILURES_BEFORE_RECALIBRATION &&
-    habit.ruleFrom <= today - RECALIBRATION_COOLDOWN_DAYS;
+    (habit.ruleFrom === habit.startDay || habit.ruleFrom <= today - RECALIBRATION_COOLDOWN_DAYS);
 
 export type Insight =
     | {
@@ -410,12 +412,12 @@ export const findInsights = (input: CoachInput): Insight[] =>
         ...pairInsights(input),
     ].sort((a, b) => b.strength - a.strength || a.fingerprint.localeCompare(b.fingerprint));
 
-const weekStartOf = (day: DayNumber): DayNumber => day - (weekdayOf(day) - 1);
+export const weekStartOf = (day: DayNumber): DayNumber => day - (weekdayOf(day) - 1);
 
 /** The Monday of the most recent week that has fully ended, as of `today`. */
 export const lastFinishedWeekStart = (today: DayNumber): DayNumber => weekStartOf(today) - 7;
 
-const iso = (day: DayNumber): string => fromDayNumber(day).toISOString().slice(0, 10);
+export const iso = (day: DayNumber): string => fromDayNumber(day).toISOString().slice(0, 10);
 
 const average = (days: CoachJournalDay[], field: 'mood' | 'energy', from: DayNumber, to: DayNumber) => {
     const values = days
