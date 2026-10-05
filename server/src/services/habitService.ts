@@ -793,6 +793,13 @@ export const addRestDay = async (
         throw new BadRequestError('Rest days are only for habits scheduled every day');
     }
 
+    // Before the schedule is consulted: a day that is already a rest day is no
+    // longer a slot, and "not scheduled" would be a misleading thing to say of it.
+    const sameWeek = habit.restDays.some(rest => weekOf(toDayNumber(rest)) === weekOf(day));
+    if (sameWeek) {
+        throw new BadRequestError('Only one rest day a week');
+    }
+
     const logs = await loadLogs(userId, habit._id);
     const timeline = buildTimeline(timelineInputOf(habit), logs, today, day);
     if (timeline.cells.get(day)?.kind !== 'slot') {
@@ -800,11 +807,6 @@ export const addRestDay = async (
     }
     if (hasRecord(logs, day)) {
         throw new BadRequestError('That day is already marked');
-    }
-
-    const sameWeek = habit.restDays.some(rest => weekOf(toDayNumber(rest)) === weekOf(day));
-    if (sameWeek) {
-        throw new BadRequestError('Only one rest day a week');
     }
 
     const before = await snapshotClone(habit);
