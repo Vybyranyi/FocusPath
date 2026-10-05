@@ -24,6 +24,7 @@ Run from the repo root unless noted.
 | Migrate day flags to statuses | `npm --prefix server run migrate:day-status` |
 | Fold stored emails to lower case | `npm --prefix server run migrate:email-lowercase` |
 | Move step ticks from habit to day | `npm --prefix server run migrate:daily-steps` |
+| Move habits to rules and a day log | `npm --prefix server run migrate:habit-model-v2` (also runs on server start) |
 
 `npm test` in the frontend is `vitest run` — non-watching, safe in CI. Use
 `test:watch` for the interactive runner.
@@ -95,14 +96,26 @@ fixed-width, so comparing days is string comparison. The frontend suite is
 pinned to `Europe/Kyiv` in `vite.config.ts` because under UTC this entire class
 of bug is invisible by construction.
 
-**A scheduled day has a status, not a flag.** `pending | done | failed` in
-`shared/src/habit.d.ts`. `failed` is the user saying "I did not do this", which
-a boolean could not express — it and "the day has not happened yet" were both
-`false`. There is deliberately no stored `missed`: a `pending` day that is over
-is missed, derived by `dayState` in `frontend/src/lib/habitStatus.ts`. Storing
-it would need a job flipping rows at midnight in every user's own timezone, and
-would be wrong until it ran. An explicit `failed` breaks the streak; today's
-grace in `calculateStreak` applies only while the day is undecided.
+**A habit is rules plus a log, not a row per day.** `Habit` holds what it asks
+for — `rules` (each with the day it took effect), an optional `program` of
+session titles, `pauses`, `restDays` — and `HabitDay` holds the days something
+*happened* on. Which days are scheduled, what each is worth, the streak, the
+percentage and the end of a programme are **worked out on read** by
+`server/src/services/habitTimeline.ts` (pure, clock injected) and presented by
+`habitView.ts`. Nothing derived is stored where it could go stale; the stored
+`currentStreak`/`isCompleted` exist only for plan statistics, which compare a
+habit before and after a change. See `docs/HABIT_MODEL_V2.md`.
+
+**A day has a state, and `missed` is derived, not stored.** `pending | done |
+failed` is what a log can hold (`shared/src/habit.d.ts`); `missed`, `paused` and
+`rest` are derived by the server in `resolveDayState`. `failed` is the user
+saying "I did not do this", which a boolean could not express. A `pending` day
+that is over is missed — storing it would need a job flipping rows at midnight in
+every user's own timezone, and would be wrong until it ran. The client does
+**not** repeat the rule; it reads `day.state`. An explicit `failed` breaks the
+streak; today's grace applies only while the day is undecided. The server reads
+days in UTC, so the client sends its own `today`, believed only within a day of
+the server's (`resolveToday`).
 
 **`shared/` holds declaration files only.** Sources are `.d.ts` on purpose:
 declaration files cannot contain runtime code and are never emitted, so neither
@@ -110,8 +123,8 @@ app gains a build step or a runtime dependency. If you need a shared *value*
 (a constant, a helper), it does not belong here.
 
 **Models strip their own secrets.** The `toJSON` transforms on
-`server/src/models/User.ts` and `Habit.ts` delete `password`, `tokenVersion`,
-`refreshSessions`, `userId` and `__v`. Do not re-add those fields to a response
+`server/src/models/User.ts`, `Habit.ts` and `HabitDay.ts` delete `password`,
+`tokenVersion`, `refreshSessions`, `userId`, `schemaVersion` and `__v`. Do not re-add those fields to a response
 by hand, and do not bypass `toJSON` with `.lean()` without checking what leaks.
 
 ## Path aliases: three places, kept in sync
