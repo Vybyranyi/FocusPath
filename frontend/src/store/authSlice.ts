@@ -135,7 +135,15 @@ export const fetchCurrentUser = createAsyncThunk(
 /** Changes settings, and only the ones sent. */
 export const setPreferences = createAsyncThunk(
     "auth/setPreferences",
-    async (preferences: { askFailureReason?: boolean }, { rejectWithValue }) => {
+    async (
+        preferences: {
+            askFailureReason?: boolean;
+            /** `null` returns the coach to "automatic". */
+            coachLanguage?: string | null;
+            coachReadsNotes?: boolean;
+        },
+        { rejectWithValue },
+    ) => {
         try {
             return await apiRequest<UserResponse>("/auth/profile", {
                 method: "PATCH",

@@ -39,6 +39,7 @@ import {
     syncCloneStats,
     type CloneSnapshot,
 } from '@services/planStats';
+import { noteWrite } from '@services/coachTriggers';
 import { startOfUtcDay } from '@utils/dates';
 import type { Habit as HabitView, HabitDay as HabitDayView, HabitSummary, ReasonCode } from '@shared/index';
 import type {
@@ -625,6 +626,8 @@ export const markCompletion = async (
     await writeDay(habit, day, { status: status === 'pending' ? null : status });
     await pruneEmptyDays(habit);
     await settle(habit, today, before);
+    // A third failure in a row is the moment the coach has something to offer.
+    if (status === 'failed') await noteWrite(userId, habit);
 
     return presentMark(habit, today, day);
 };
@@ -657,6 +660,8 @@ export const setValue = async (
     const before = await snapshotClone(habit);
     await writeDay(habit, day, { value: stored });
     await settle(habit, today, before);
+    // A quit limit passed is a failed day like any other.
+    await noteWrite(userId, habit);
 
     return presentMark(habit, today, day);
 };
@@ -945,4 +950,32 @@ export const setReason = async (
     );
 
     return presentMark(habit, today, day);
+};
+
+/**
+ * Rewrites several consecutive sessions of a programme at once — what applying a
+ * gentler plan does. One save and one report to the plan the habit came from, not
+ * one per session.
+ */
+export const setSessionTitles = async (
+    userId: string,
+    habitId: string,
+    fromSession: number,
+    titles: readonly string[],
+): Promise<HabitView> => {
+    const habit = await requireOwnedHabit(userId, habitId);
+
+    if (!habit.program) {
+        throw new BadRequestError('A habit with no end has no sessions to rewrite');
+    }
+
+    const before = await snapshotClone(habit);
+    titles.forEach((title, offset) => {
+        const session = habit.program?.[fromSession - 1 + offset];
+        if (session) session.title = title;
+    });
+
+    const today = resolveToday();
+    const logs = await settle(habit, today, before);
+    return presentHabit(habit, logs, today);
 };

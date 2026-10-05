@@ -3,6 +3,7 @@ import type { JournalEntry } from "@shared/index";
 import { apiRequest, errorMessage } from "@api/client";
 import { dayKeyOf } from "@/lib/dates";
 import { getHabitsForDate } from "@store/habitSlice";
+import { deleteAccount, logoutUser } from "@store/authSlice";
 
 export type SaveState = "idle" | "saving" | "saved" | "error";
 
@@ -75,6 +76,10 @@ const journalSlice = createSlice({
   initialState,
   reducers: {},
   extraReducers: (builder) => {
+    // The most private thing on the page: gone from memory when its owner leaves.
+    builder.addCase(logoutUser.fulfilled, () => initialState);
+    builder.addCase(deleteAccount.fulfilled, () => initialState);
+
     // The day view carries the day's entry with it, so showing a day costs no
     // second request.
     builder.addCase(getHabitsForDate.fulfilled, (state, action) => {

@@ -28,7 +28,7 @@ export const DEFAULT_CLIENT_DIST = process.env.CLIENT_DIST
  * with `Accept: text/html` came back as the app's HTML instead of the 404 it
  * was. `/explore`, the library's page, is a client route and is not listed.
  */
-export const API_PREFIXES = ['/auth', '/habits', '/journal', '/plans', '/healthz'];
+export const API_PREFIXES = ['/auth', '/coach', '/habits', '/journal', '/plans', '/healthz'];
 
 const isApiPath = (pathname: string): boolean =>
     API_PREFIXES.some(prefix => pathname === prefix || pathname.startsWith(`${prefix}/`));

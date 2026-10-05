@@ -79,7 +79,19 @@ export const updateProfileSchema = z
         email: email.optional(),
         avatar: avatar.optional(),
         /** Settings, each optional: only what is sent changes. */
-        preferences: z.object({ askFailureReason: z.boolean().optional() }).optional(),
+        preferences: z
+            .object({
+                askFailureReason: z.boolean().optional(),
+                // `null` returns the coach to "automatic": the language of the habits.
+                coachLanguage: z
+                    .union([
+                        z.string().trim().toLowerCase().regex(/^[a-z]{2}$/, 'Must be a two-letter language code'),
+                        z.null(),
+                    ])
+                    .optional(),
+                coachReadsNotes: z.boolean().optional(),
+            })
+            .optional(),
         /**
          * Required only to move the address, and only the service can tell
          * whether it is moving — it needs the stored one to compare against.

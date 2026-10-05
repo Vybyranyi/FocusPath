@@ -64,6 +64,10 @@ const UserSchema: Schema = new Schema({
         // Asked by default: the moment of a lapse is the one moment the reason is
         // known, and someone who never sees the question can never answer it.
         askFailureReason: { type: Boolean, default: true },
+        // Absent means automatic. Two letters, as ISO 639-1 — the same shape a
+        // plan's language is held in.
+        coachLanguage: { type: String, lowercase: true, trim: true, minlength: 2, maxlength: 2 },
+        coachReadsNotes: { type: Boolean, default: false },
     },
 }, { timestamps: true });
 

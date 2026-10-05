@@ -327,7 +327,7 @@ describe('Notes, reasons and the day view', () => {
         it('is on by default', async () => {
             const response = await client.agent.get('/auth/me').expect(200);
 
-            expect(response.body.data.user.preferences).toEqual({ askFailureReason: true });
+            expect(response.body.data.user.preferences).toEqual({ askFailureReason: true, coachReadsNotes: false });
         });
 
         it('can be turned off, and back', async () => {

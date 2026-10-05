@@ -1,4 +1,5 @@
 import type { HabitExport } from "./habit";
+import type { CoachCard } from "./coach";
 import type { JournalEntry } from "./journal";
 import type { Plan } from "./plan";
 
@@ -45,6 +46,17 @@ export interface User {
 export interface UserPreferences {
     /** Ask why, right after a habit is marked failed. */
     askFailureReason: boolean;
+    /**
+     * ISO 639-1 language the coach writes in. Absent means "automatic": the
+     * language the habits are named in.
+     */
+    coachLanguage?: string;
+    /**
+     * Whether the coach may read the notes and journal text of the last two
+     * weeks. Off unless the person turns it on: the numbers carry most of the
+     * value without a word of anything personal leaving the account.
+     */
+    coachReadsNotes: boolean;
 }
 
 /**
@@ -57,5 +69,6 @@ export interface AccountExport {
     user: User;
     habits: HabitExport[];
     journal: JournalEntry[];
+    coachCards: CoachCard[];
     plans: Plan[];
 }
