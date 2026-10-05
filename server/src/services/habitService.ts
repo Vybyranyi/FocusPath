@@ -40,7 +40,7 @@ import {
     type CloneSnapshot,
 } from '@services/planStats';
 import { startOfUtcDay } from '@utils/dates';
-import type { Habit as HabitView, HabitDay as HabitDayView, HabitSummary } from '@shared/index';
+import type { Habit as HabitView, HabitDay as HabitDayView, HabitSummary, ReasonCode } from '@shared/index';
 import type {
     AddPauseDto,
     AddRestDayDto,
@@ -49,6 +49,8 @@ import type {
     CreateHabitFromPlanDto,
     EndPauseDto,
     MarkCompletionDto,
+    SetNoteDto,
+    SetReasonDto,
     SetValueDto,
     ToggleStepDto,
     UpdateHabitDto,
@@ -110,7 +112,26 @@ interface DayChange {
     status?: 'done' | 'failed' | null;
     value?: number | null;
     completedSteps?: mongoose.Types.ObjectId[];
+    note?: string | null;
+    failureReason?: { code: ReasonCode; text?: string } | null;
+    reasonPrompted?: boolean;
 }
+
+/** A record with no mark, no count, no ticks, no note and no reason is the same as no record. */
+const isEmptyRecord = (record: {
+    status?: unknown;
+    value?: unknown;
+    completedSteps: unknown[];
+    note?: unknown;
+    failureReason?: unknown;
+    reasonPrompted?: unknown;
+}): boolean =>
+    !record.status &&
+    (record.value === undefined || record.value === null) &&
+    record.completedSteps.length === 0 &&
+    !record.note &&
+    !record.failureReason &&
+    !record.reasonPrompted;
 
 /**
  * Writes one day of the log, and removes the record when nothing is left on it.
@@ -132,6 +153,15 @@ const writeDay = async (habit: IHabit, day: DayNumber, change: DayChange): Promi
         else set.value = change.value;
     }
     if (change.completedSteps !== undefined) set.completedSteps = change.completedSteps;
+    if (change.note !== undefined) {
+        if (change.note === null) unset.note = '';
+        else set.note = change.note;
+    }
+    if (change.failureReason !== undefined) {
+        if (change.failureReason === null) unset.failureReason = '';
+        else set.failureReason = change.failureReason;
+    }
+    if (change.reasonPrompted !== undefined) set.reasonPrompted = change.reasonPrompted;
 
     const update: Record<string, unknown> = {
         $setOnInsert: { habitId: habit._id, userId: habit.userId, day: fromDayNumber(day) },
@@ -145,11 +175,7 @@ const writeDay = async (habit: IHabit, day: DayNumber, change: DayChange): Promi
         { upsert: true, new: true },
     );
 
-    const empty =
-        !record.status &&
-        (record.value === undefined || record.value === null) &&
-        record.completedSteps.length === 0;
-    if (empty) {
+    if (isEmptyRecord(record)) {
         await HabitDay.deleteOne({ _id: record._id });
     }
 };
@@ -157,12 +183,7 @@ const writeDay = async (habit: IHabit, day: DayNumber, change: DayChange): Promi
 /** Removes every record of a habit that has nothing left on it. */
 const pruneEmptyDays = async (habit: IHabit): Promise<void> => {
     const logs = await HabitDay.find({ habitId: habit._id, userId: habit.userId });
-    const empty = logs.filter(
-        log =>
-            !log.status &&
-            (log.value === undefined || log.value === null) &&
-            log.completedSteps.length === 0,
-    );
+    const empty = logs.filter(isEmptyRecord);
     if (empty.length === 0) return;
 
     await HabitDay.bulkWrite(empty.map(log => ({ deleteOne: { filter: { _id: log._id } } })));
@@ -178,8 +199,27 @@ const pruneEmptyDays = async (habit: IHabit): Promise<void> => {
  * the last write must not be shown as alive — they work it out again.
  */
 const settle = async (habit: IHabit, today: DayNumber, before: CloneSnapshot) => {
-    const logs = await loadLogs(habit.userId, habit._id);
+    let logs = await loadLogs(habit.userId, habit._id);
     const { timeline, streak } = evaluate(habit, logs, today);
+
+    // A reason belongs to a day that was failed. When a day stops being one —
+    // it was taken back, its goal was changed, its habit was shortened past it —
+    // the reason would be a lie in the statistics about a failure that never was.
+    const stale = logs.filter(
+        log =>
+            log.failureReason &&
+            toDayNumber(log.day) <= today &&
+            timeline.cells.get(toDayNumber(log.day))?.state !== 'failed',
+    );
+    if (stale.length > 0) {
+        await HabitDay.bulkWrite(
+            stale.map(log => ({
+                updateOne: { filter: { _id: (log as unknown as { _id: mongoose.Types.ObjectId })._id }, update: { $unset: { failureReason: '' } } },
+            })),
+        );
+        await pruneEmptyDays(habit);
+        logs = await loadLogs(habit.userId, habit._id);
+    }
 
     habit.currentStreak = streak.value;
     habit.streakUnit = streak.unit;
@@ -838,4 +878,71 @@ export const removeRestDay = async (
 
     const today = resolveToday();
     return presentHabit(habit, await settle(habit, today, before), today);
+};
+
+/** The latest day a note may be written for: today, with a day of slack for somebody ahead of the server. */
+const requireNotFuture = (day: DayNumber): void => {
+    if (day > resolveToday() + 1) {
+        throw new BadRequestError('Nothing can be written for a day that has not come');
+    }
+};
+
+/**
+ * A few words about how a day went. Any day the habit has a view of may carry
+ * one — a note on a rest day, "ill, slept all day", is exactly the context that
+ * makes a streak make sense. An empty note takes it away.
+ */
+export const setNote = async (
+    userId: string,
+    habitId: string,
+    dayKey: string,
+    { note }: SetNoteDto,
+): Promise<MarkResult> => {
+    const habit = await requireOwnedHabit(userId, habitId);
+    const today = resolveToday();
+    const day = toDayNumber(`${dayKey}T00:00:00.000Z`);
+    requireNotFuture(day);
+
+    const logs = await loadLogs(userId, habit._id);
+    const { timeline } = evaluate(habit, logs, today, day);
+    if (!timeline.cells.has(day)) {
+        throw new BadRequestError('The habit is not scheduled on that date');
+    }
+
+    await writeDay(habit, day, { note: note === '' ? null : note });
+
+    return presentMark(habit, today, day);
+};
+
+/**
+ * Why a day was failed, in a word from a closed list and optionally a few of
+ * the person's own. Asked for right after the mark, because that is the one
+ * moment the reason is known; `skipped` records only that the question was
+ * shown, so it is not put again.
+ */
+export const setReason = async (
+    userId: string,
+    habitId: string,
+    dayKey: string,
+    dto: SetReasonDto,
+): Promise<MarkResult> => {
+    const habit = await requireOwnedHabit(userId, habitId);
+    const today = resolveToday();
+    const day = toDayNumber(`${dayKey}T00:00:00.000Z`);
+
+    const logs = await loadLogs(userId, habit._id);
+    const { timeline } = evaluate(habit, logs, today, day);
+    if (timeline.cells.get(day)?.state !== 'failed') {
+        throw new BadRequestError('Only a day that was failed has a reason');
+    }
+
+    await writeDay(
+        habit,
+        day,
+        'skipped' in dto
+            ? { reasonPrompted: true }
+            : { failureReason: { code: dto.code, ...(dto.text ? { text: dto.text } : {}) }, reasonPrompted: true },
+    );
+
+    return presentMark(habit, today, day);
 };

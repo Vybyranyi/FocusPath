@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'crypto';
 import User, { type IUser } from '@models/User';
 import Habit from '@models/Habit';
 import HabitDay from '@models/HabitDay';
+import JournalEntry from '@models/JournalEntry';
 import { groupByHabit, presentExport, type LoggedDay } from '@services/habitView';
 import { toDayNumber } from '@services/habitTimeline';
 import Plan from '@models/Plan';
@@ -154,8 +155,15 @@ export const getProfile = (userId: string | undefined): Promise<IUser> => requir
 
 export const updateProfile = async (
     userId: string | undefined,
-    { currentPassword, ...changes }: UpdateProfileDto,
+    { currentPassword, preferences, ...profile }: UpdateProfileDto,
 ): Promise<IUser> => {
+    // A preference is set by its own path, so changing one never replaces its
+    // siblings — the object it lives in will hold more of them.
+    const changes: Record<string, unknown> & Pick<UpdateProfileDto, 'email'> = { ...profile };
+    for (const [key, value] of Object.entries(preferences ?? {})) {
+        if (value !== undefined) changes[`preferences.${key}`] = value;
+    }
+
     const user = await requireUser(userId, ['password']);
 
     /**
@@ -257,9 +265,10 @@ export const changePassword = async (
  */
 export const exportAccount = async (userId: string | undefined) => {
     const user = await requireUser(userId);
-    const [habits, logs, plans] = await Promise.all([
+    const [habits, logs, journal, plans] = await Promise.all([
         Habit.find({ userId }).sort({ createdAt: 1 }),
         HabitDay.find({ userId }).lean<LoggedDay[]>(),
+        JournalEntry.find({ userId }).sort({ day: 1 }),
         Plan.find({ 'author.userId': userId }).sort({ createdAt: 1 }),
     ]);
 
@@ -272,6 +281,7 @@ export const exportAccount = async (userId: string | undefined) => {
         exportedAt: new Date().toISOString(),
         user,
         habits: habits.map(habit => presentExport(habit, byHabit.get(String(habit._id)) ?? [], today)),
+        journal,
         plans,
     };
 };
@@ -405,5 +415,7 @@ export const deleteAccount = async (
     );
     await Habit.deleteMany({ userId });
     await HabitDay.deleteMany({ userId });
+    // The most private thing the account holds: gone with it, not softly.
+    await JournalEntry.deleteMany({ userId });
     await User.findByIdAndDelete(userId);
 };
