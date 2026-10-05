@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { format } from "date-fns";
 import type { DayState, HabitSummary } from "@shared/index";
 import HabitCard from "@components/habit/HabitCard";
@@ -278,18 +278,66 @@ describe("HabitCard", () => {
       expect(screen.getByRole("button", { name: /one more glasses for Water/i })).toBeInTheDocument();
     });
 
-    it("adds one with a tap", () => {
+    const sent = () => waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    it("adds one with a tap", async () => {
       counted({ value: 3 });
 
       fireEvent.click(screen.getByRole("button", { name: /one more glasses for Water/i }));
+      await sent();
 
       expect(String(fetchMock.mock.calls[0][0])).toContain("/habits/habit-1/value");
       expect(bodyAt(0)).toMatchObject({ value: 4 });
     });
 
-    it("takes one off, and cannot go below nothing", () => {
+    /**
+     * Each tap computed from the number on screen, and the second went out
+     * before the first had answered — two glasses were saved as one.
+     */
+    it("shows each tap at once and sends the taps as one request", async () => {
+      counted({ value: 0 });
+      const more = screen.getByRole("button", { name: /one more glasses for Water/i });
+
+      fireEvent.click(more);
+      fireEvent.click(more);
+      fireEvent.click(more);
+
+      expect(screen.getByText("3 / 8")).toBeInTheDocument();
+      await sent();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(bodyAt(0)).toMatchObject({ value: 3 });
+    });
+
+    it("does not lose taps when the day is left before they were sent", () => {
+      const { unmount } = counted({ value: 3 });
+
+      fireEvent.click(screen.getByRole("button", { name: /one more glasses for Water/i }));
+      unmount();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(bodyAt(0)).toMatchObject({ value: 4 });
+    });
+
+    it("puts the server's number back when a count is refused", async () => {
+      fetchMock.mockResolvedValue(
+        new Response(
+          JSON.stringify({ success: false, error: { code: "BAD_REQUEST", message: "The habit is paused on that date" } }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      counted({ value: 3 });
+
+      fireEvent.click(screen.getByRole("button", { name: /one more glasses for Water/i }));
+      expect(screen.getByText("4 / 8")).toBeInTheDocument();
+
+      expect(await screen.findByText(/could not save “water” — the habit is paused on that date/i)).toBeInTheDocument();
+      await waitFor(() => expect(screen.getByText("3 / 8")).toBeInTheDocument());
+    });
+
+    it("takes one off, and cannot go below nothing", async () => {
       const { unmount } = counted({ value: 3 });
       fireEvent.click(screen.getByRole("button", { name: /one less glasses for Water/i }));
+      await sent();
       expect(bodyAt(0)).toMatchObject({ value: 2 });
       unmount();
 
@@ -297,13 +345,14 @@ describe("HabitCard", () => {
       expect(screen.getByRole("button", { name: /one less glasses for Water/i })).toBeDisabled();
     });
 
-    it("takes a number typed in, for the day that was fourteen", () => {
+    it("takes a number typed in, for the day that was fourteen", async () => {
       counted({ value: 3 });
 
       fireEvent.click(screen.getByRole("button", { name: /set glasses for Water/i }));
       const field = screen.getByRole("spinbutton");
       fireEvent.change(field, { target: { value: "14" } });
       fireEvent.keyDown(field, { key: "Enter" });
+      await sent();
 
       expect(bodyAt(0)).toMatchObject({ value: 14 });
     });
@@ -328,10 +377,11 @@ describe("HabitCard", () => {
     describe("a limit to quit", () => {
       const limit = { value: 5, unit: "cigarettes" };
 
-      it("offers a clean day until anything is counted, and records it as zero", () => {
+      it("offers a clean day until anything is counted, and records it as zero", async () => {
         counted({ target: limit }, { type: "quit", title: "Smoking" });
 
         fireEvent.click(screen.getByRole("button", { name: /Mark Smoking a clean day/ }));
+        await sent();
 
         expect(bodyAt(0)).toMatchObject({ value: 0 });
       });

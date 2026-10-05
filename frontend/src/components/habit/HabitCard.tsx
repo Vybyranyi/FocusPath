@@ -1,6 +1,6 @@
 import CircleLoader from '@components/habit/CircleLoader';
 import { useSwipeable } from 'react-swipeable';
-import { useState, useRef, useCallback, memo } from 'react';
+import { useState, useRef, useCallback, useEffect, memo } from 'react';
 import type { DayStatus, HabitSummary } from '@shared/index';
 import { markHabitCompletion, setHabitValue } from '@store/habitSlice';
 import { useAppDispatch } from '@store/hooks';
@@ -12,6 +12,9 @@ import CounterControl from '@components/habit/CounterControl';
 import HabitDetailPopup from '@components/habit/HabitDetailPopup';
 import { cn } from '@/lib/utils';
 import { useToast } from '@hooks/useToast';
+
+/** How long taps on a counter are gathered before they are sent as one. */
+const COUNT_DEBOUNCE_MS = 400;
 
 interface IHabitCardProps {
   habit: HabitSummary;
@@ -109,11 +112,50 @@ function HabitCard({ habit }: IHabitCardProps) {
       .catch(reportRefusal);
   }, [dispatch, habit._id, habit.day.date, reportRefusal]);
 
-  const handleCount = useCallback((value: number) => {
+  /**
+   * Counting is tapped quickly — three glasses in as many seconds — and every
+   * tap computes from the number on screen. Sent one by one, the second tap
+   * went out before the first had answered and carried the same value, so two
+   * glasses were saved as one. The tapped number is shown at once and the taps
+   * are sent as a single request once they stop; a refusal puts the server's
+   * number back.
+   */
+  const [counted, setCounted] = useState<number | null>(null);
+  const latestCount = useRef<number | null>(null);
+  const countTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const sendCount = useCallback((value: number) => {
     dispatch(setHabitValue({ habitId: habit._id, date: habit.day.date, value }))
       .unwrap()
-      .catch(reportRefusal);
+      .catch(reportRefusal)
+      .finally(() => {
+        // Only if no later tap has taken over the number on screen.
+        if (latestCount.current === value) {
+          latestCount.current = null;
+          setCounted(null);
+        }
+      });
   }, [dispatch, habit._id, habit.day.date, reportRefusal]);
+
+  const sendCountRef = useRef(sendCount);
+  useEffect(() => {
+    sendCountRef.current = sendCount;
+  }, [sendCount]);
+
+  const handleCount = useCallback((value: number) => {
+    latestCount.current = value;
+    setCounted(value);
+    clearTimeout(countTimer.current);
+    countTimer.current = setTimeout(() => sendCountRef.current(value), COUNT_DEBOUNCE_MS);
+  }, []);
+
+  // Leaving the day with taps still waiting must not lose them.
+  useEffect(() => () => {
+    if (countTimer.current !== undefined && latestCount.current !== null) {
+      clearTimeout(countTimer.current);
+      sendCountRef.current(latestCount.current);
+    }
+  }, []);
 
   // Marks only make sense for a day that can be marked: not a pause, not a
   // rest day, not one that has not come, and — for a weekly habit — not once
@@ -217,7 +259,7 @@ function HabitCard({ habit }: IHabitCardProps) {
               title={habit.title}
               type={habit.type}
               target={target}
-              value={habit.day.value}
+              value={counted ?? habit.day.value}
               onChange={handleCount}
             />
           )}

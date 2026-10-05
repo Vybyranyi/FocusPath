@@ -70,7 +70,7 @@ export default function PauseSheet({ habit, open, onOpenChange }: IPauseSheetPro
     >
       <Input
         label="For how many days (optional)"
-        placeholder="Leave empty to pause until you resume"
+        placeholder="Empty: until you resume"
         type="text"
         value={days}
         onChange={(event) => setDays(event.target.value)}
