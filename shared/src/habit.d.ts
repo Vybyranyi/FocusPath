@@ -87,6 +87,22 @@ export interface Habit {
     updatedAt: string;
 }
 
+/** Why a day was not done. A closed list, so the reasons can be counted. */
+export type ReasonCode =
+    | "no_time"
+    | "forgot"
+    | "no_energy"
+    | "ill"
+    | "circumstances"
+    | "didnt_want"
+    | "other";
+
+/** The reason given for a failed day, with an optional few words of the person's own. */
+export interface FailureReason {
+    code: ReasonCode;
+    text?: string;
+}
+
 /** One day of a habit, worked out by the server. */
 export interface HabitDay {
     /** ISO 8601 date string, normalised to midnight UTC. */
@@ -102,6 +118,12 @@ export interface HabitDay {
     session?: { index: number; total: number; title: string };
     /** Where a weekly habit stands this week. */
     week?: { done: number; target: number };
+    /** A few words about how it went. */
+    note?: string;
+    /** Why a `failed` day was failed, if the person said. */
+    failureReason?: FailureReason;
+    /** The reason prompt has been shown for this day, so it is not shown again. */
+    reasonPrompted?: boolean;
 }
 
 /**
@@ -166,6 +188,9 @@ export interface LoggedDay {
     status?: Exclude<DayStatus, "pending">;
     value?: number;
     completedSteps: string[];
+    note?: string;
+    failureReason?: FailureReason;
+    reasonPrompted?: boolean;
 }
 
 /** A habit with everything it holds: the task of each session, and every day that was logged. */

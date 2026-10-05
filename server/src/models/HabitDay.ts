@@ -1,11 +1,29 @@
 import mongoose, { Document, Schema } from 'mongoose';
-import type { DayStatus } from '@shared/index';
+import type { DayStatus, FailureReason, ReasonCode } from '@shared/index';
 
 /**
  * The statuses a day can be *stored* with. `pending` is the absence of a
  * record, and `missed` is derived from the date — see `DayStatus` in `shared/`.
  */
 export const LOGGED_STATUSES: readonly Exclude<DayStatus, 'pending'>[] = ['done', 'failed'];
+
+/**
+ * The runtime half of `ReasonCode`, which `shared/` can only declare. A closed
+ * list on purpose: free text cannot be counted, and what the coach reads is the
+ * count.
+ */
+export const REASON_CODES: readonly ReasonCode[] = [
+    'no_time',
+    'forgot',
+    'no_energy',
+    'ill',
+    'circumstances',
+    'didnt_want',
+    'other',
+];
+
+export const MAX_NOTE = 280;
+export const MAX_REASON_TEXT = 200;
 
 /** Largest quantity a day may hold. Wide enough for steps, narrow enough to catch a slipped finger. */
 export const MAX_DAY_VALUE = 10_000;
@@ -20,6 +38,12 @@ export interface IHabitDay extends Document {
     /** Set by counting, for a habit that has a target. */
     value?: number;
     completedSteps: mongoose.Types.ObjectId[];
+    /** A few words about how it went. */
+    note?: string;
+    /** Only ever present on a day that is `failed`; removed when it stops being one. */
+    failureReason?: FailureReason;
+    /** The "why?" prompt was shown for this day, so it is not shown twice. */
+    reasonPrompted?: boolean;
 }
 
 /**
@@ -39,6 +63,14 @@ const HabitDaySchema = new Schema({
     status: { type: String, enum: LOGGED_STATUSES },
     value: { type: Number, min: 0, max: MAX_DAY_VALUE },
     completedSteps: { type: [mongoose.Types.ObjectId], default: [] },
+    note: { type: String, maxlength: MAX_NOTE },
+    failureReason: {
+        type: new Schema({
+            code: { type: String, enum: REASON_CODES, required: true },
+            text: { type: String, maxlength: MAX_REASON_TEXT },
+        }, { _id: false }),
+    },
+    reasonPrompted: { type: Boolean },
 });
 
 HabitDaySchema.index({ habitId: 1, day: 1 }, { unique: true });

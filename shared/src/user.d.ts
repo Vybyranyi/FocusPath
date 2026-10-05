@@ -1,4 +1,5 @@
 import type { HabitExport } from "./habit";
+import type { JournalEntry } from "./journal";
 import type { Plan } from "./plan";
 
 export type Gender = "male" | "female";
@@ -35,8 +36,15 @@ export interface User {
      * information about a specific person.
      */
     displayName?: string;
+    preferences?: UserPreferences;
     createdAt: string;
     updatedAt: string;
+}
+
+/** Settings a person chooses. Every one has a default, so a user without any is valid. */
+export interface UserPreferences {
+    /** Ask why, right after a habit is marked failed. */
+    askFailureReason: boolean;
 }
 
 /**
@@ -48,5 +56,6 @@ export interface AccountExport {
     exportedAt: string;
     user: User;
     habits: HabitExport[];
+    journal: JournalEntry[];
     plans: Plan[];
 }
