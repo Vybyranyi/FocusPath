@@ -3,12 +3,16 @@ import authReducer from '@store/authSlice';
 import habitReducer from '@store/habitSlice';
 import calendarReducer from '@store/calendarSlice';
 import plansReducer from '@store/plansSlice';
+import journalReducer from '@store/journalSlice';
+import coachReducer from '@store/coachSlice';
 
 const rootReducer = combineReducers({
     auth: authReducer,
     habit: habitReducer,
     calendar: calendarReducer,
     plans: plansReducer,
+    journal: journalReducer,
+    coach: coachReducer,
 });
 
 export type RootState = ReturnType<typeof rootReducer>;

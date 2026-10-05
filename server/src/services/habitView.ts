@@ -4,6 +4,7 @@ import type {
     Frequency,
     Habit,
     HabitDay,
+    ReasonCode,
     HabitExport,
     HabitSummary,
     Target,
@@ -37,6 +38,9 @@ export interface LoggedDay {
     status?: 'done' | 'failed' | null;
     value?: number | null;
     completedSteps: mongoose.Types.ObjectId[];
+    note?: string | null;
+    failureReason?: { code: ReasonCode; text?: string | null } | null;
+    reasonPrompted?: boolean | null;
 }
 
 export const plainFrequency = (frequency: IHabit['rules'][number]['frequency']): Frequency => {
@@ -157,6 +161,11 @@ export const presentDay = (
                 }
                 : undefined,
         week: cell.segment ? { done: cell.segment.done, target: cell.segment.target } : undefined,
+        note: log?.note ?? undefined,
+        failureReason: log?.failureReason
+            ? { code: log.failureReason.code, text: log.failureReason.text ?? undefined }
+            : undefined,
+        reasonPrompted: log?.reasonPrompted ?? undefined,
     };
 };
 
@@ -188,6 +197,11 @@ export const presentExport = (
             status: log.status ?? undefined,
             value: log.value ?? undefined,
             completedSteps: log.completedSteps.map(String),
+            note: log.note ?? undefined,
+            failureReason: log.failureReason
+                ? { code: log.failureReason.code, text: log.failureReason.text ?? undefined }
+                : undefined,
+            reasonPrompted: log.reasonPrompted ?? undefined,
         })),
 });
 

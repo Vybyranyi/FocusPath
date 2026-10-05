@@ -143,4 +143,49 @@ describe("Main", () => {
       expect(screen.queryByRole("heading", { name: "Anytime" })).not.toBeInTheDocument();
     });
   });
+
+  describe("the day's journal", () => {
+    /** Answers every day asked for with that day, carrying the given journal entry. */
+    const answerEachDay = (journalFor: (date: string) => unknown) =>
+      fetchMock.mockImplementation(async (url: string) => {
+        const date = new URL(String(url), "http://x").searchParams.get("date") ?? "";
+        return new Response(
+          JSON.stringify({ success: true, data: { date: `${date}T00:00:00.000Z`, habits: [], journal: journalFor(date) } }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      });
+
+    it("sits below the habits of a day that has begun, even with no habits", async () => {
+      answerEachDay(() => null);
+
+      renderWithProviders(<Main />, { preloadedState: thisWeek() });
+
+      expect(await screen.findByRole("region", { name: "Your day" })).toBeInTheDocument();
+      expect(await screen.findByText("Nothing scheduled for this day")).toBeInTheDocument();
+    });
+
+    it("shows the entry the day already has", async () => {
+      answerEachDay((date) => ({ _id: "j", day: `${date}T00:00:00.000Z`, mood: 4 }));
+
+      renderWithProviders(<Main />, { preloadedState: thisWeek() });
+
+      expect(await screen.findByRole("radio", { name: /Good \(4 of 5\)/ })).toHaveAttribute("aria-checked", "true");
+    });
+
+    it("is not offered for a day that has not come", async () => {
+      const user = userEvent.setup();
+      answerEachDay(() => null);
+      // The week after this one starts on a day that has not come.
+      const nextWeek = addDays(weekStart(), 7);
+
+      renderWithProviders(<Main />, {
+        preloadedState: { calendar: { currentWeekStart: nextWeek.toISOString() } },
+      });
+      await user.click(screen.getByText(String(nextWeek.getDate())));
+
+      await waitFor(() => expect(lastRequestedDay()).toBe(format(nextWeek, "yyyy-MM-dd")));
+      await screen.findByText("Nothing scheduled for this day");
+      expect(screen.queryByRole("region", { name: "Your day" })).not.toBeInTheDocument();
+    });
+  });
 });

@@ -1,5 +1,5 @@
 import mongoose, { Document, Schema } from 'mongoose';
-import type { User } from '@shared/index';
+import type { User, UserPreferences } from '@shared/index';
 
 /**
  * The stored user. Field names and unions come from the shared `User` contract
@@ -8,7 +8,7 @@ import type { User } from '@shared/index';
  */
 export interface IUser
     extends Document,
-    Omit<User, '_id' | 'birthday' | 'createdAt' | 'updatedAt'> {
+    Omit<User, '_id' | 'birthday' | 'preferences' | 'createdAt' | 'updatedAt'> {
     birthday: Date;
     password: string;
     /**
@@ -31,6 +31,7 @@ export interface IUser
      */
     passwordResetHash?: string;
     passwordResetExpires?: Date;
+    preferences: UserPreferences;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -59,6 +60,15 @@ const UserSchema: Schema = new Schema({
     refreshSessions: { type: [String], default: [], select: false },
     passwordResetHash: { type: String, select: false, index: { sparse: true } },
     passwordResetExpires: { type: Date, select: false },
+    preferences: {
+        // Asked by default: the moment of a lapse is the one moment the reason is
+        // known, and someone who never sees the question can never answer it.
+        askFailureReason: { type: Boolean, default: true },
+        // Absent means automatic. Two letters, as ISO 639-1 — the same shape a
+        // plan's language is held in.
+        coachLanguage: { type: String, lowercase: true, trim: true, minlength: 2, maxlength: 2 },
+        coachReadsNotes: { type: Boolean, default: false },
+    },
 }, { timestamps: true });
 
 // Strips the hash on the way out so no controller has to remember to, and drops

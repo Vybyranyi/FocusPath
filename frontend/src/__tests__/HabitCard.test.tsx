@@ -437,4 +437,112 @@ describe("HabitCard", () => {
       expect(screen.getByRole("button", { name: "Mark Read done" })).toHaveAttribute("aria-pressed", "true");
     });
   });
+
+  describe("asking why a day was failed", () => {
+    const fetchMock = vi.fn();
+
+    const failedDay = (over: Partial<HabitSummary["day"]> = {}) => ({
+      date: utcMidnightOf(new Date()),
+      state: "failed" as DayState,
+      completedSteps: [],
+      ...over,
+    });
+
+    const answer = (day: Partial<HabitSummary["day"]>) =>
+      fetchMock.mockImplementation(async () =>
+        new Response(JSON.stringify({ success: true, data: { habit: makeHabitSummary(), day: failedDay(day) } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    const user = (askFailureReason: boolean | undefined) => ({
+      auth: {
+        user: {
+          _id: "u", name: "A", surname: "B", birthday: "", gender: "male" as const, email: "a@b.c", createdAt: "", updatedAt: "",
+          ...(askFailureReason === undefined ? {} : { preferences: { askFailureReason, coachReadsNotes: false } }),
+        },
+        loading: false,
+        error: null,
+        unreachable: false,
+      },
+    });
+
+    beforeEach(() => {
+      vi.stubGlobal("fetch", fetchMock);
+      fetchMock.mockReset();
+      document.cookie = "csrf_token=token; path=/";
+    });
+
+    const failIt = (preferences: boolean | undefined = true) => {
+      renderWithProviders(<HabitCard habit={makeHabitSummary({ day: { date: utcMidnightOf(new Date()), state: "pending", completedSteps: [] } })} />, {
+        preloadedState: user(preferences),
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Mark Read not done" }));
+    };
+
+    it("asks right after the day is marked failed", async () => {
+      answer({});
+
+      failIt();
+
+      expect(await screen.findByText("What got in the way?")).toBeInTheDocument();
+    });
+
+    it("asks by default, before the person has chosen anything", async () => {
+      answer({});
+
+      failIt(undefined);
+
+      expect(await screen.findByText("What got in the way?")).toBeInTheDocument();
+    });
+
+    it("does not ask a person who asked not to be", async () => {
+      answer({});
+
+      failIt(false);
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(screen.queryByText("What got in the way?")).not.toBeInTheDocument();
+    });
+
+    it("does not ask twice for the same day", async () => {
+      answer({ reasonPrompted: true });
+
+      failIt();
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(screen.queryByText("What got in the way?")).not.toBeInTheDocument();
+    });
+
+    it("does not ask after a day is marked done", async () => {
+      answer({ state: "done" });
+      renderWithProviders(<HabitCard habit={makeHabitSummary({ day: { date: utcMidnightOf(new Date()), state: "pending", completedSteps: [] } })} />, {
+        preloadedState: user(true),
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "Mark Read done" }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(screen.queryByText("What got in the way?")).not.toBeInTheDocument();
+    });
+
+    it("asks when a limit to quit is passed", async () => {
+      answer({});
+      renderWithProviders(
+        <HabitCard
+          habit={makeHabitSummary({
+            type: "quit",
+            title: "Smoking",
+            day: { date: utcMidnightOf(new Date()), state: "pending", completedSteps: [], target: { value: 3, unit: "cigarettes" }, value: 3 },
+          })}
+        />,
+        { preloadedState: user(true) },
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /one more cigarettes for Smoking/i }));
+
+      expect(await screen.findByText("What got in the way?", {}, { timeout: 2500 })).toBeInTheDocument();
+    });
+  });
 });

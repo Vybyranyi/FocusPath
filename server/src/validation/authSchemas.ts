@@ -68,7 +68,7 @@ export type LoginDto = z.infer<typeof loginSchema>;
  * but is not one of them, so it is listed apart: it must not be the sole content
  * of an update, and the service strips it rather than writing it to the document.
  */
-const PROFILE_FIELDS = ['name', 'surname', 'birthday', 'gender', 'email', 'avatar'] as const;
+const PROFILE_FIELDS = ['name', 'surname', 'birthday', 'gender', 'email', 'avatar', 'preferences'] as const;
 
 export const updateProfileSchema = z
     .object({
@@ -78,6 +78,20 @@ export const updateProfileSchema = z
         gender: z.enum(['male', 'female']).optional(),
         email: email.optional(),
         avatar: avatar.optional(),
+        /** Settings, each optional: only what is sent changes. */
+        preferences: z
+            .object({
+                askFailureReason: z.boolean().optional(),
+                // `null` returns the coach to "automatic": the language of the habits.
+                coachLanguage: z
+                    .union([
+                        z.string().trim().toLowerCase().regex(/^[a-z]{2}$/, 'Must be a two-letter language code'),
+                        z.null(),
+                    ])
+                    .optional(),
+                coachReadsNotes: z.boolean().optional(),
+            })
+            .optional(),
         /**
          * Required only to move the address, and only the service can tell
          * whether it is moving — it needs the stored one to compare against.

@@ -5,6 +5,8 @@ import type {
   Habit,
   HabitDay,
   HabitSummary,
+  JournalEntry,
+  ReasonCode,
   Target,
   TimeOfDay,
 } from "@shared/index";
@@ -12,6 +14,7 @@ import type { CreateHabitFormValues, StepDraft } from "@/types/forms";
 import { apiRequest, errorMessage } from "@api/client";
 import { dayKeyOf, toDayKey, todayKey } from "@/lib/dates";
 import { publishPlan, unpublishPlan } from "@store/plansSlice";
+import { applyCoachCard } from "@store/coachSlice";
 import { draftFrequency, draftTarget } from "@/lib/schedule";
 
 export interface IHabitSlice {
@@ -111,9 +114,12 @@ export const getHabitsForDate = createAsyncThunk(
       // The client's own today travels with the request: the server reads days
       // in UTC, and without this a user west of Greenwich is told the day they
       // are still living has been missed.
-      return await apiRequest<{ date: string; habits: HabitSummary[] }>(
-        `/habits/daily?date=${day}&today=${todayKey()}`,
-      );
+      return await apiRequest<{
+        date: string;
+        habits: HabitSummary[];
+        /** The day's own journal entry, so the day view needs no second request. */
+        journal?: JournalEntry | null;
+      }>(`/habits/daily?date=${day}&today=${todayKey()}`);
     } catch (error) {
       return rejectWithValue(errorMessage(error));
     }
@@ -172,6 +178,51 @@ export const setHabitValue = createAsyncThunk(
         method: "PATCH",
         body: { date: dayKeyOf(date), value, today: todayKey() },
       });
+      return { habitId, habit, day };
+    } catch (error) {
+      return rejectWithValue(errorMessage(error));
+    }
+  },
+);
+
+/** A few words about how one day of a habit went. An empty note takes it away. */
+export const saveDayNote = createAsyncThunk(
+  "habit/saveDayNote",
+  async (
+    { habitId, date, note }: { habitId: string; date: string; note: string },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { habit, day } = await apiRequest<MarkResponse>(
+        `/habits/${habitId}/days/${dayKeyOf(date)}/note`,
+        { method: "PATCH", body: { note } },
+      );
+      return { habitId, habit, day };
+    } catch (error) {
+      return rejectWithValue(errorMessage(error));
+    }
+  },
+);
+
+/**
+ * Why a failed day was failed — or that the question was asked and set aside,
+ * so it is not asked again.
+ */
+export const saveFailureReason = createAsyncThunk(
+  "habit/saveFailureReason",
+  async (
+    {
+      habitId,
+      date,
+      reason,
+    }: { habitId: string; date: string; reason: { code: ReasonCode; text?: string } | { skipped: true } },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { habit, day } = await apiRequest<MarkResponse>(
+        `/habits/${habitId}/days/${dayKeyOf(date)}/reason`,
+        { method: "PATCH", body: reason },
+      );
       return { habitId, habit, day };
     } catch (error) {
       return rejectWithValue(errorMessage(error));
@@ -453,7 +504,9 @@ const habitSlice = createSlice({
 
     builder
       .addCase(markHabitCompletion.fulfilled, (state, action) => applyMark(state, action.payload))
-      .addCase(setHabitValue.fulfilled, (state, action) => applyMark(state, action.payload));
+      .addCase(setHabitValue.fulfilled, (state, action) => applyMark(state, action.payload))
+      .addCase(saveDayNote.fulfilled, (state, action) => applyMark(state, action.payload))
+      .addCase(saveFailureReason.fulfilled, (state, action) => applyMark(state, action.payload));
 
     /** Flips a step in the day view's copy of the day it was ticked on. */
     const flipStep = (state: IHabitSlice, arg: { habitId: string; stepId: string; date: string }) => {
@@ -492,6 +545,12 @@ const habitSlice = createSlice({
       .addCase(renameHabitDay.fulfilled, (state, action) => {
         applyHabit(state, action.payload.habit);
       });
+
+    // An applied offer changed the habit's rule. The day on screen is refetched by
+    // whoever applied it; here the habit is brought up to date everywhere else.
+    builder.addCase(applyCoachCard.fulfilled, (state, action) => {
+      applyHabit(state, action.payload.habit);
+    });
 
     // Habit-level fields only: the day itself comes back through `refreshDay`.
     for (const thunk of [addPause, endPause, removePause, addRestDay, removeRestDay]) {

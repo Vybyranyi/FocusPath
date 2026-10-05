@@ -369,4 +369,88 @@ describe("HabitDetailPopup", () => {
       expect(screen.queryByRole("button", { name: /rest on this day/i })).not.toBeInTheDocument();
     });
   });
+
+  describe("the note and the reason", () => {
+    const ok = (data: unknown) =>
+      new Response(JSON.stringify({ success: true, data }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    beforeEach(() => {
+      fetchMock.mockReset();
+      fetchMock.mockImplementation(async () => ok({ habit: makeHabitSummary(), day: { date: "", state: "pending", completedSteps: [] } }));
+    });
+
+    const day = (over: Partial<HabitSummary["day"]> = {}, offset = 0): HabitSummary["day"] => ({
+      date: dayFromToday(offset),
+      state: "pending",
+      completedSteps: [],
+      ...over,
+    });
+
+    it("starts from the note the day already has", () => {
+      open(makeHabitSummary({ day: day({ note: "Read on the train" }) }));
+
+      expect(screen.getByLabelText("Note for this day")).toHaveValue("Read on the train");
+    });
+
+    it("keeps the note when the field is left", async () => {
+      open(makeHabitSummary({ day: day() }));
+
+      const field = screen.getByLabelText("Note for this day");
+      fireEvent.change(field, { target: { value: "  Easy one " } });
+      fireEvent.blur(field);
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(String(fetchMock.mock.calls[0][0])).toContain(`/habits/habit-1/days/${toDayKey(new Date())}/note`);
+      expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ note: "Easy one" });
+    });
+
+    it("sends nothing when the note was not changed", () => {
+      open(makeHabitSummary({ day: day({ note: "Same" }) }));
+
+      fireEvent.blur(screen.getByLabelText("Note for this day"));
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("takes the note away when it is emptied", async () => {
+      open(makeHabitSummary({ day: day({ note: "Gone" }) }));
+
+      const field = screen.getByLabelText("Note for this day");
+      fireEvent.change(field, { target: { value: "" } });
+      fireEvent.blur(field);
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ note: "" });
+    });
+
+    it("has no note field for a day that has not come", () => {
+      open(makeHabitSummary({ day: day({}, 2) }));
+
+      expect(screen.queryByLabelText("Note for this day")).not.toBeInTheDocument();
+    });
+
+    it("says why a failed day was failed", () => {
+      open(makeHabitSummary({ day: day({ state: "failed", failureReason: { code: "ill", text: "Flu" } }) }));
+
+      expect(screen.getByText("Ill")).toBeInTheDocument();
+      expect(screen.getByText(/— Flu/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Change" })).toBeInTheDocument();
+    });
+
+    it("offers to add a reason when a failed day has none", () => {
+      open(makeHabitSummary({ day: day({ state: "failed" }) }));
+
+      expect(screen.getByText("No reason given for this day.")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Add" })).toBeInTheDocument();
+    });
+
+    it("says nothing about a reason for a day that was not failed", () => {
+      open(makeHabitSummary({ day: day({ state: "done" }) }));
+
+      expect(screen.queryByText(/no reason given/i)).not.toBeInTheDocument();
+    });
+  });
 });

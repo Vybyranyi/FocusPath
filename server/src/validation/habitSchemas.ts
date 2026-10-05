@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { TIMES_OF_DAY } from '@models/Habit';
-import { MAX_DAY_VALUE } from '@models/HabitDay';
+import { MAX_DAY_VALUE, MAX_NOTE, MAX_REASON_TEXT, REASON_CODES } from '@models/HabitDay';
+import { dayKey } from '@validation/journalSchemas';
 import { objectId } from '@validation/common';
 
 export const habitParamsSchema = z.object({ id: objectId('habit ID') });
@@ -292,3 +293,28 @@ export const habitsForDateQuerySchema = z.object({
     date: z.coerce.date('Must be a valid date').optional(),
     today: clientToday,
 });
+
+export const dayNoteParamsSchema = z.object({ id: objectId('habit ID'), day: dayKey });
+export type DayNoteParams = z.infer<typeof dayNoteParamsSchema>;
+
+/** A few words about how a day went. An empty note takes it away. */
+export const setNoteSchema = z.object({
+    note: z.string('A note is required').trim().max(MAX_NOTE, `Must be ${MAX_NOTE} characters or fewer`),
+});
+export type SetNoteDto = z.infer<typeof setNoteSchema>;
+
+/**
+ * Why a day was failed — or that the question was asked and set aside, so it is
+ * not asked again. A closed list of codes, because only a closed list can be
+ * counted.
+ */
+export const setReasonSchema = z.union([
+    z.object({
+        code: z.enum(REASON_CODES as [string, ...string[]], 'Pick one of the listed reasons'),
+        text: z.string().trim().max(MAX_REASON_TEXT, `Must be ${MAX_REASON_TEXT} characters or fewer`).optional(),
+    }),
+    z.object({ skipped: z.literal(true) }),
+]);
+export type SetReasonDto =
+    | { code: (typeof REASON_CODES)[number]; text?: string }
+    | { skipped: true };

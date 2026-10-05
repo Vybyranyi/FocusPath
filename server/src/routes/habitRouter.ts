@@ -16,6 +16,8 @@ import {
     removePause,
     addRestDay,
     removeRestDay,
+    setDayNote,
+    setDayReason,
 } from '@controllers/habitController';
 import { createAIHabit } from '@controllers/aiHabitController';
 import { verifyTokenMiddleware } from '@middlewares/auth';
@@ -27,12 +29,15 @@ import {
     createAIHabitSchema,
     createHabitFromPlanSchema,
     createHabitSchema,
+    dayNoteParamsSchema,
     endPauseSchema,
     habitParamsSchema,
     habitsForDateQuerySchema,
     markCompletionSchema,
     pauseParamsSchema,
     restDayParamsSchema,
+    setNoteSchema,
+    setReasonSchema,
     setValueSchema,
     stepParamsSchema,
     toggleStepSchema,
@@ -84,5 +89,9 @@ router.delete('/:id/pauses/:pauseId', verifyTokenMiddleware, validate({ params: 
 // Вихідний: один день, який не рахується (лише для щоденних звичок)
 router.post('/:id/rest-days', verifyTokenMiddleware, validate({ params: habitParamsSchema, body: addRestDaySchema }), addRestDay);
 router.delete('/:id/rest-days/:date', verifyTokenMiddleware, validate({ params: restDayParamsSchema }), removeRestDay);
+
+// Нотатка до дня й причина зриву (щоденник)
+router.patch('/:id/days/:day/note', verifyTokenMiddleware, validate({ params: dayNoteParamsSchema, body: setNoteSchema }), setDayNote);
+router.patch('/:id/days/:day/reason', verifyTokenMiddleware, validate({ params: dayNoteParamsSchema, body: setReasonSchema }), setDayReason);
 
 export default router;

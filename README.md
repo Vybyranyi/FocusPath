@@ -81,7 +81,8 @@ npm run dev
 | `NODE_ENV` | ні | `development` | Режим роботи. У `production` вмикає `secure` для cookie й вимагає окремі ключі підпису |
 | `PORT` | ні | `5000` | Порт API (`.env.example` пропонує `3000`) |
 | `MONGO_URI` | **так** | — | Рядок підключення до MongoDB |
-| `OPENAI_API_KEY` | ні | — | Без нього не працює лише генерація звички через AI |
+| `OPENAI_API_KEY` | ні | — | Без нього не працюють лише генерація звички через AI й слова коуча; цифри коуча рахує код, тож порожні картки не з'являються |
+| `COACH_MODEL` | ні | `gpt-4o-mini` | Модель, що формулює тексти коуча. Змінюється без зміни коду |
 | `JWT_SECRET` | **так** | — | Спільний ключ підпису; поза production використовується як запасний |
 | `JWT_ACCESS_SECRET` | у production | `JWT_SECRET` | Ключ для access-токенів |
 | `JWT_REFRESH_SECRET` | у production | `JWT_SECRET` | Ключ для refresh-токенів |
