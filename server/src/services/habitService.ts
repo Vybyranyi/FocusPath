@@ -335,7 +335,7 @@ export const createHabitFromPlan = async (
         rules: [{
             effectiveFrom: startDate,
             frequency: dto.frequency ?? plainFrequency(plan.frequency),
-            target: dto.target ?? plainTarget(plan.target),
+            target: dto.target === undefined ? plainTarget(plan.target) : dto.target ?? undefined,
         }],
         program,
         userId,

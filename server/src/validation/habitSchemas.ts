@@ -154,7 +154,8 @@ export const createHabitFromPlanSchema = z.object({
     // that plan.
     sessions: sessions.optional(),
     frequency: frequency.optional(),
-    target: target.optional(),
+    // `null` takes the plan's goal away; absent keeps it.
+    target: target.nullable().optional(),
     color: z.string().trim().min(1).optional(),
     icon: z.string().trim().min(1).optional(),
 });

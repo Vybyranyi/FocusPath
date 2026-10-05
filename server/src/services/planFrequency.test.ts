@@ -112,6 +112,15 @@ describe('Plans and frequencies', () => {
         expect(habit).toMatchObject({ frequency: { kind: 'daily' }, target: { value: 3, unit: 'km' } });
     });
 
+    it('lets the taker drop the goal the plan came with', async () => {
+        const plan = await publish(author, (await createHabit(author))._id);
+
+        const habit = await take(taker, plan._id, { target: null });
+
+        expect(habit.target).toBeUndefined();
+        expect(habit.frequency).toEqual(weekly);
+    });
+
     it('refuses to publish a habit with no end', async () => {
         const { sessions: _unused, ...rest } = {
             title: 'Meditate',
