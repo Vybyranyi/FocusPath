@@ -1,6 +1,7 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from "@reduxjs/toolkit";
 import type { CoachCard, Habit } from "@shared/index";
 import { apiRequest, errorMessage } from "@api/client";
+import { deleteAccount, logoutUser } from "@store/authSlice";
 
 export interface ICoachSlice {
   /** Every card worth showing, newest first: the offers and the ones that were written. */
@@ -128,6 +129,11 @@ const coachSlice = createSlice({
     },
   },
   extraReducers: (builder) => {
+    // What the coach said is built from one person's journal. It must not still be
+    // in memory when somebody else signs in on the same page.
+    builder.addCase(logoutUser.fulfilled, () => initialState);
+    builder.addCase(deleteAccount.fulfilled, () => initialState);
+
     builder
       .addCase(loadCoach.pending, (state) => {
         state.loading = true;

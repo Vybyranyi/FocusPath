@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchJournalHistory, saveJournalEntry } from "@store/journalSlice";
 import { getHabitsForDate } from "@store/habitSlice";
+import { logoutUser } from "@store/authSlice";
 import { makeStore } from "@store/store";
 
 const fetchMock = vi.fn();
@@ -119,5 +120,16 @@ describe("journalSlice", () => {
       "2026-08-02",
       "2026-08-01",
     ]);
+  });
+
+  it("forgets the entry and the history when the person signs out", async () => {
+    const store = makeStore({
+      journal: { ...makeStore().getState().journal, entry: entry("2026-08-07"), entryDay: "2026-08-07", history: [entry("2026-08-06")] },
+    });
+    fetchMock.mockResolvedValue(ok(null));
+
+    await store.dispatch(logoutUser());
+
+    expect(store.getState().journal).toMatchObject({ entry: null, entryDay: null, history: [] });
   });
 });

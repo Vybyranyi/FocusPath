@@ -7,6 +7,7 @@ import {
   openCoachCard,
   rateCoachCard,
 } from "@store/coachSlice";
+import { deleteAccount, logoutUser } from "@store/authSlice";
 import { makeStore } from "@store/store";
 import { makeCoachCard, makeHabitSummary, makeOffer } from "../testUtils";
 
@@ -187,5 +188,28 @@ describe("coachSlice", () => {
 
     expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ helpful: true });
     expect(store.getState().coach.cards[0].feedback).toBe("helpful");
+  });
+
+  describe("when the person leaves", () => {
+    const loaded = () =>
+      makeStore({ coach: { ...makeStore().getState().coach, cards: [makeCoachCard()], loadedOnce: true } });
+
+    it("forgets everything on sign-out", async () => {
+      const store = loaded();
+      fetchMock.mockResolvedValue(ok(null));
+
+      await store.dispatch(logoutUser());
+
+      expect(store.getState().coach).toMatchObject({ cards: [], loadedOnce: false });
+    });
+
+    it("forgets everything when the account is deleted", async () => {
+      const store = loaded();
+      fetchMock.mockResolvedValue(ok(null));
+
+      await store.dispatch(deleteAccount({ password: "x" }));
+
+      expect(store.getState().coach).toMatchObject({ cards: [], loadedOnce: false });
+    });
   });
 });
