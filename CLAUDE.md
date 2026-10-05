@@ -227,7 +227,7 @@ Order matters; the codebase follows it without exception.
 
 ## Frontend conventions
 
-- State is three Redux Toolkit slices (`auth`, `habit`, `calendar`). Derived
+- State is Redux Toolkit slices (`auth`, `habit`, `calendar`, `plans`, `journal`). Derived
   values go through `createSelector` in `store/selectors.ts` so they are
   computed once per change rather than per render; plain field selectors are not
   memoised and should not be.
