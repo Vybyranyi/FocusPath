@@ -3,15 +3,23 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Emoji } from 'react-apple-emojis';
 import { useAppDispatch } from '@store/hooks';
-import { toggleHabitStep, deleteHabit } from '@store/habitSlice';
+import {
+  addRestDay,
+  deleteHabit,
+  endPause,
+  removePause,
+  removeRestDay,
+  toggleHabitStep,
+} from '@store/habitSlice';
 import { habitCompletion } from '@/lib/habitProgress';
-import { dayKeyOf, fromDayKey, relativeDayLabel, todayKey } from '@/lib/dates';
+import { dayKeyOf, fromDayKey, relativeDayLabel, toDayKey, todayKey } from '@/lib/dates';
 import { isDone, isOff } from '@/lib/habitStatus';
 import type { HabitSummary } from '@shared/index';
-import { format } from 'date-fns';
+import { addDays, format } from 'date-fns';
 import Button from '@components/ui/Button';
 import PublishPlanSheet from '@components/explore/PublishPlanSheet';
 import EditHabitSheet from '@components/habit/EditHabitSheet';
+import PauseSheet from '@components/habit/PauseSheet';
 import { cn } from '@/lib/utils';
 import { useToast } from '@hooks/useToast';
 import { useNavigate } from 'react-router';
@@ -48,6 +56,13 @@ const TrashIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <polyline points="3 6 5 6 21 6" />
     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+  </svg>
+);
+
+const PauseIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <rect x="6" y="5" width="4" height="14" rx="1" />
+    <rect x="14" y="5" width="4" height="14" rx="1" />
   </svg>
 );
 
@@ -101,6 +116,7 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [pausing, setPausing] = useState(false);
 
   /**
    * Radix hands focus back to its own `Dialog.Trigger`. This sheet is mounted
@@ -131,6 +147,49 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
     dispatch(toggleHabitStep({ habitId: habit._id, stepId, date: habit.day.date }));
   };
 
+  // The pause covering today, if there is one — the thing "Resume" ends.
+  const today = todayKey();
+  const shownDay = dayKeyOf(habit.day.date);
+  const currentPause = habit.pauses.find(
+    (pause) => dayKeyOf(pause.from) <= today && (!pause.to || dayKeyOf(pause.to) >= today),
+  );
+  const yesterday = toDayKey(addDays(fromDayKey(today), -1));
+
+  // A rest day is for a daily habit, on a day that is still to be decided — and
+  // not before today, since the server will not backdate one.
+  const isRestDay = habit.day.state === 'rest';
+  const canRest =
+    habit.frequency.kind === 'daily' &&
+    shownDay >= today &&
+    ['pending', 'missed'].includes(habit.day.state);
+
+  const refusal = (reason: unknown) =>
+    notify(typeof reason === 'string' ? reason : 'Could not save the change', 'danger');
+
+  /**
+   * A pause that has begun is only ever closed from yesterday on; one that has
+   * not yet begun — or begins today — is simply taken back, which the server
+   * allows and which is what "resume" means for it.
+   */
+  const handleResume = () => {
+    if (!currentPause) return;
+    const request = dayKeyOf(currentPause.from) >= yesterday
+      ? removePause({ habitId: habit._id, day: shownDay, pauseId: currentPause._id })
+      : endPause({ habitId: habit._id, day: shownDay, pauseId: currentPause._id, to: yesterday });
+
+    dispatch(request).unwrap().then(() => notify(`“${habit.title}” is back`)).catch(refusal);
+  };
+
+  const handleRestDay = () => {
+    dispatch(
+      isRestDay
+        ? removeRestDay({ habitId: habit._id, day: shownDay, date: shownDay })
+        : addRestDay({ habitId: habit._id, day: shownDay, date: shownDay }),
+    )
+      .unwrap()
+      .catch(refusal);
+  };
+
   const handleDelete = () => {
     dispatch(deleteHabit(habit._id));
     notify(`Deleted “${habit.title}”`);
@@ -151,7 +210,7 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
      * it. Two stacked sheets meant two overlays, two blurs and a card the user
      * could see but not reach; cancelling brings this one straight back.
      */
-    <Dialog.Root open={!publishing && !editing} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Dialog.Root open={!publishing && !editing && !pausing} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay asChild>
           <motion.div
@@ -254,6 +313,35 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                             <PencilIcon />
                             Edit habit
                          </button>
+                         {currentPause ? (
+                           <button
+                             type="button"
+                             onClick={() => { setMenuOpen(false); handleResume(); }}
+                             className="w-full text-left px-4 py-3 body-bold text-ink hover:bg-canvas transition-colors flex items-center gap-2 cursor-pointer"
+                           >
+                              <PauseIcon />
+                              Resume habit
+                           </button>
+                         ) : (
+                           <button
+                             type="button"
+                             onClick={() => { setMenuOpen(false); setPausing(true); }}
+                             className="w-full text-left px-4 py-3 body-bold text-ink hover:bg-canvas transition-colors flex items-center gap-2 cursor-pointer"
+                           >
+                              <PauseIcon />
+                              Pause habit
+                           </button>
+                         )}
+                         {(canRest || isRestDay) && (
+                           <button
+                             type="button"
+                             onClick={() => { setMenuOpen(false); handleRestDay(); }}
+                             className="w-full text-left px-4 py-3 body-bold text-ink hover:bg-canvas transition-colors flex items-center gap-2 cursor-pointer"
+                           >
+                              <PauseIcon />
+                              {isRestDay ? 'Take back rest day' : 'Rest on this day'}
+                           </button>
+                         )}
                          {/* Only a programme can be published: a habit with no
                              end has no tasks to hand to the library. */}
                          {habit.sessions === undefined ? null : habit.publishedPlanId ? (
@@ -442,6 +530,10 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
           now rather than from whatever was typed and abandoned last time. */}
       {editing && (
         <EditHabitSheet habit={habit} open={editing} onOpenChange={setEditing} />
+      )}
+
+      {pausing && (
+        <PauseSheet habit={habit} open={pausing} onOpenChange={setPausing} />
       )}
 
       <PublishPlanSheet

@@ -201,4 +201,172 @@ describe("HabitDetailPopup", () => {
       expect(screen.getByRole("dialog")).toBeInTheDocument();
     });
   });
+
+  describe("pausing and resting", () => {
+    const ok = (data: unknown) =>
+      new Response(JSON.stringify({ success: true, data }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    const bodyAt = (call: number) =>
+      JSON.parse(String((fetchMock.mock.calls[call][1] as RequestInit).body));
+
+    const menu = () => fireEvent.click(screen.getByRole("button", { name: /habit options/i }));
+
+    const day = (state: HabitSummary["day"]["state"], offset = 0) => ({
+      date: dayFromToday(offset),
+      state,
+      completedSteps: [],
+    });
+
+    beforeEach(() => {
+      fetchMock.mockReset();
+      fetchMock.mockImplementation(async () => ok({ habit: makeHabitSummary(), date: "", habits: [] }));
+    });
+
+    it("offers to pause a habit that is running", () => {
+      open(makeHabitSummary({ day: day("pending") }));
+
+      menu();
+
+      expect(screen.getByRole("button", { name: /pause habit/i })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /resume habit/i })).not.toBeInTheDocument();
+    });
+
+    it("pauses from today for as many days as were asked", async () => {
+      open(makeHabitSummary({ day: day("pending") }));
+      menu();
+      fireEvent.click(screen.getByRole("button", { name: /pause habit/i }));
+
+      fireEvent.change(await screen.findByLabelText(/for how many days/i), { target: { value: "3" } });
+      fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(String(fetchMock.mock.calls[0][0])).toContain("/habits/habit-1/pauses");
+      const today = new Date();
+      const end = new Date(today);
+      end.setDate(end.getDate() + 2);
+      expect(bodyAt(0)).toEqual({ from: toDayKey(today), to: toDayKey(end) });
+    });
+
+    it("leaves the pause open when no number of days is given", async () => {
+      open(makeHabitSummary({ day: day("pending") }));
+      menu();
+      fireEvent.click(screen.getByRole("button", { name: /pause habit/i }));
+
+      fireEvent.click(await screen.findByRole("button", { name: "Pause" }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(bodyAt(0)).toEqual({ from: toDayKey(new Date()) });
+    });
+
+    it("refuses a number of days that is not one", async () => {
+      open(makeHabitSummary({ day: day("pending") }));
+      menu();
+      fireEvent.click(screen.getByRole("button", { name: /pause habit/i }));
+
+      fireEvent.change(await screen.findByLabelText(/for how many days/i), { target: { value: "0" } });
+
+      expect(screen.getByText(/1–365/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Pause" })).toBeDisabled();
+    });
+
+    it("says why when the server refuses the pause", async () => {
+      fetchMock.mockResolvedValue(
+        new Response(
+          JSON.stringify({ success: false, error: { code: "CONFLICT", message: "That overlaps another pause" } }),
+          { status: 409, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+      open(makeHabitSummary({ day: day("pending") }));
+      menu();
+      fireEvent.click(screen.getByRole("button", { name: /pause habit/i }));
+
+      fireEvent.click(await screen.findByRole("button", { name: "Pause" }));
+
+      expect(await screen.findByRole("alert")).toHaveTextContent("That overlaps another pause");
+    });
+
+    it("offers to resume a habit that is paused, and ends the pause from yesterday", async () => {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const started = new Date();
+      started.setDate(started.getDate() - 5);
+
+      open(
+        makeHabitSummary({
+          day: day("paused"),
+          pauses: [{ _id: "p1", from: `${toDayKey(started)}T00:00:00.000Z` }],
+        }),
+      );
+      menu();
+      expect(screen.queryByRole("button", { name: /pause habit/i })).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: /resume habit/i }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(String(fetchMock.mock.calls[0][0])).toContain("/habits/habit-1/pauses/p1");
+      expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("PATCH");
+      expect(bodyAt(0)).toEqual({ to: toDayKey(yesterday) });
+    });
+
+    it("takes back a pause that only began today, rather than ending it", async () => {
+      open(
+        makeHabitSummary({
+          day: day("paused"),
+          pauses: [{ _id: "p1", from: `${toDayKey(new Date())}T00:00:00.000Z` }],
+        }),
+      );
+      menu();
+
+      fireEvent.click(screen.getByRole("button", { name: /resume habit/i }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("DELETE");
+    });
+
+    it("offers a rest day for a daily habit on a day still to be decided", async () => {
+      open(makeHabitSummary({ day: day("pending") }));
+      menu();
+
+      fireEvent.click(screen.getByRole("button", { name: /rest on this day/i }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect(String(fetchMock.mock.calls[0][0])).toContain("/habits/habit-1/rest-days");
+      expect(bodyAt(0)).toEqual({ date: toDayKey(new Date()) });
+    });
+
+    it("takes a rest day back", async () => {
+      open(makeHabitSummary({ day: day("rest") }));
+      menu();
+
+      fireEvent.click(screen.getByRole("button", { name: /take back rest day/i }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+      expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("DELETE");
+      expect(String(fetchMock.mock.calls[0][0])).toContain(`/rest-days/${toDayKey(new Date())}`);
+    });
+
+    it("offers no rest day to a habit that is not scheduled every day", () => {
+      open(makeHabitSummary({ frequency: { kind: "weekly", times: 3 }, day: day("pending") }));
+      menu();
+
+      expect(screen.queryByRole("button", { name: /rest on this day/i })).not.toBeInTheDocument();
+    });
+
+    it("offers no rest day for a day that has been and gone", () => {
+      open(makeHabitSummary({ day: day("missed", -2) }));
+      menu();
+
+      expect(screen.queryByRole("button", { name: /rest on this day/i })).not.toBeInTheDocument();
+    });
+
+    it("offers no rest day for a day already done", () => {
+      open(makeHabitSummary({ day: day("done") }));
+      menu();
+
+      expect(screen.queryByRole("button", { name: /rest on this day/i })).not.toBeInTheDocument();
+    });
+  });
 });
