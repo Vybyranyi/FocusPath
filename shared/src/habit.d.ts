@@ -79,3 +79,50 @@ export interface HabitSummary
     /** How many days of the whole habit are done, across the entire schedule. */
     completedCount: number;
 }
+
+/**
+ * How often a habit is scheduled.
+ *
+ * `weekdays` days are numbered 1 = Monday … 7 = Sunday. `weekly` is a number of
+ * times in a Monday–Sunday week, not tied to particular days: any day of the
+ * week may fill one of the slots.
+ */
+export type Frequency =
+    | { kind: "daily" }
+    | { kind: "weekdays"; days: number[] }
+    | { kind: "weekly"; times: number };
+
+/**
+ * A quantity per day. Its direction comes from the habit's `type` — `build`
+ * means "at least", `quit` means "at most" — so a contradiction such as "quit,
+ * at least 5" cannot be stored.
+ */
+export interface Target {
+    value: number;
+    unit: string;
+}
+
+export type TimeOfDay = "morning" | "afternoon" | "evening" | "anytime";
+
+/** What a habit asked of its owner from `effectiveFrom` on. The first rule starts at `startDate`. */
+export interface HabitRule {
+    /** ISO 8601 date string, normalised to midnight UTC. */
+    effectiveFrom: string;
+    frequency: Frequency;
+    target?: Target;
+}
+
+/** A stretch of days that do not count. An open pause has no `to`. */
+export interface HabitPause {
+    _id: string;
+    /** ISO 8601 date string, normalised to midnight UTC. */
+    from: string;
+    to?: string;
+}
+
+/**
+ * What a day is worth on screen. `missed` is derived from the date, never
+ * stored, for the reason given on `DayStatus`; `paused` and `rest` are days the
+ * habit is deliberately not asked for.
+ */
+export type DayState = DayStatus | "missed" | "paused" | "rest";
