@@ -13,6 +13,7 @@
     "migrate:day-status": "ts-node -r tsconfig-paths/register src/scripts/migrateDayStatus.ts",
     "migrate:email-lowercase": "ts-node -r tsconfig-paths/register src/scripts/migrateEmailLowercase.ts",
     "migrate:daily-steps": "ts-node -r tsconfig-paths/register src/scripts/migrateDailySteps.ts",
+    "migrate:habit-model-v2": "ts-node -r tsconfig-paths/register src/scripts/migrateHabitModelV2.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "jest",
