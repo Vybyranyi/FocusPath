@@ -48,9 +48,11 @@ export const publishPlan = async (userId: string, dto: PublishPlanDto): Promise<
     }
 
     const dayTitles = habit.program.map(session => session.title);
-    // What the habit was started as. A rhythm changed half way is not the route
-    // the plan describes.
-    const [first] = rulesOf(habit);
+    // What the author runs now. The plan is a snapshot of the habit as it stands,
+    // and `scheduleHashOfHabit` reads the same rule, so the two agree until the
+    // habit's rhythm is changed afterwards.
+    const rules = rulesOf(habit);
+    const current = rules[rules.length - 1];
 
     // Fail closed. Publishing is not urgent — unlike habit generation, which is
     // already allowed to fall over with a 503 — and an unreviewed plan sitting
@@ -80,15 +82,15 @@ export const publishPlan = async (userId: string, dto: PublishPlanDto): Promise<
         language: review.language,
         type: habit.type,
         duration: dayTitles.length,
-        frequency: first.frequency,
-        target: first.target,
+        frequency: current.frequency,
+        target: current.target,
         timeOfDay: habit.timeOfDay,
         color: habit.color,
         icon: habit.icon,
         days: dayTitles.map(dayTitle => ({ dayTitle })),
         author: { userId, displayName: dto.displayName },
         sourceHabitId: habit._id,
-        contentHash: contentHash({ frequency: first.frequency, target: first.target }, dayTitles),
+        contentHash: contentHash({ frequency: current.frequency, target: current.target }, dayTitles),
         moderation: {
             checkedAt: new Date(),
             model: MODERATION_MODEL,

@@ -15,18 +15,25 @@ import { contentHash, qualifiesAsProven } from '@services/planContent';
  */
 
 /**
- * The hash of the route this habit was *started* on: the first rule and the
- * programme. A frequency changed half way is a deviation from the route the
- * plan describes, and the clone stops matching — which is the whole point.
+ * The hash of the route this habit runs now: the rule in force and the
+ * programme. A rhythm changed half way is a deviation from the route the plan
+ * describes, and the clone stops matching — which is the whole point, and
+ * exactly how a changed length has always been treated.
+ *
+ * It is the *last* rule, not the first. With the first, a clone that started on
+ * the plan's rhythm and then switched to an easier one would still match, and
+ * an author could publish, relax their own rhythm and still earn the badge for
+ * the route they no longer walk.
  *
  * A habit with no end has no programme to hash and can never match a plan.
  */
 export const scheduleHashOfHabit = (habit: IHabit): string => {
     if (!habit.program) return '';
 
-    const [first] = rulesOf(habit);
+    const rules = rulesOf(habit);
+    const current = rules[rules.length - 1];
     return contentHash(
-        { frequency: first.frequency, target: first.target },
+        { frequency: current.frequency, target: current.target },
         habit.program.map(session => session.title),
     );
 };
