@@ -693,6 +693,15 @@ describe('The coach', () => {
             expect(me.preferences).toEqual({ askFailureReason: false, coachLanguage: 'uk', coachReadsNotes: true });
         });
 
+        it('can be sent back to automatic with null', async () => {
+            await write(client, 'patch', '/auth/profile').send({ preferences: { coachLanguage: 'uk' } }).expect(200);
+
+            const response = await write(client, 'patch', '/auth/profile').send({ preferences: { coachLanguage: null } }).expect(200);
+
+            expect(response.body.data.user.preferences.coachLanguage).toBeUndefined();
+            expect(response.body.data.user.preferences.coachReadsNotes).toBe(false);
+        });
+
         it.each(['ukr', 'u', '12', ''])('refuse a language of %j', async coachLanguage => {
             await write(client, 'patch', '/auth/profile').send({ preferences: { coachLanguage } }).expect(400);
         });

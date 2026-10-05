@@ -161,8 +161,10 @@ export const updateProfile = async (
     // A preference is set by its own path, so changing one never replaces its
     // siblings — the object it lives in will hold more of them.
     const changes: Record<string, unknown> & Pick<UpdateProfileDto, 'email'> = { ...profile };
+    const unset: Record<string, ''> = {};
     for (const [key, value] of Object.entries(preferences ?? {})) {
-        if (value !== undefined) changes[`preferences.${key}`] = value;
+        if (value === null) unset[`preferences.${key}`] = '';
+        else if (value !== undefined) changes[`preferences.${key}`] = value;
     }
 
     const user = await requireUser(userId, ['password']);
@@ -219,10 +221,14 @@ export const updateProfile = async (
     // Safe to apply wholesale: the schema allows only profile fields and has
     // already dropped anything else the request carried, and `currentPassword`
     // — the one field that is not a profile field — is destructured away above.
-    const updated = await User.findByIdAndUpdate(userId, changes, {
-        new: true,
-        runValidators: true,
-    });
+    const updated = await User.findByIdAndUpdate(
+        userId,
+        {
+            ...(Object.keys(changes).length > 0 ? { $set: changes } : {}),
+            ...(Object.keys(unset).length > 0 ? { $unset: unset } : {}),
+        },
+        { new: true, runValidators: true },
+    );
 
     if (!updated) {
         throw new NotFoundError('User not found');

@@ -82,11 +82,12 @@ export const updateProfileSchema = z
         preferences: z
             .object({
                 askFailureReason: z.boolean().optional(),
+                // `null` returns the coach to "automatic": the language of the habits.
                 coachLanguage: z
-                    .string()
-                    .trim()
-                    .toLowerCase()
-                    .regex(/^[a-z]{2}$/, 'Must be a two-letter language code')
+                    .union([
+                        z.string().trim().toLowerCase().regex(/^[a-z]{2}$/, 'Must be a two-letter language code'),
+                        z.null(),
+                    ])
                     .optional(),
                 coachReadsNotes: z.boolean().optional(),
             })
