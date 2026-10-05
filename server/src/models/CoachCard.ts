@@ -28,6 +28,8 @@ export interface ICoachCard extends Document {
     proposal?: RecalibrationProposal;
     content?: CoachContent;
     language: string;
+    /** Which pattern an insight is about, so it is not told twice. Names ids, so it never leaves the server. */
+    fingerprint?: string;
     attempts: number;
     feedback?: 'helpful' | 'not_helpful';
     usage?: { model: string; inputTokens: number; outputTokens: number };
@@ -62,6 +64,7 @@ const CoachCardSchema = new Schema({
         }, { _id: false }),
     },
     language: { type: String, required: true },
+    fingerprint: { type: String },
     attempts: { type: Number, default: 0 },
     feedback: { type: String, enum: ['helpful', 'not_helpful'] },
     // Cost, never content: what was asked and answered stays out of every log.
@@ -83,6 +86,7 @@ CoachCardSchema.set('toJSON', {
         delete ret.userId;
         delete ret.usage;
         delete ret.attempts;
+        delete ret.fingerprint;
         delete ret.__v;
         return ret;
     },
