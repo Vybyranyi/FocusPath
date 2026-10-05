@@ -9,7 +9,7 @@ const withUser = (preferences?: { askFailureReason: boolean }) => ({
   auth: {
     user: {
       _id: "u", name: "A", surname: "B", birthday: "", gender: "male" as const, email: "a@b.c", createdAt: "", updatedAt: "",
-      ...(preferences ? { preferences } : {}),
+      ...(preferences ? { preferences: { ...preferences, coachReadsNotes: false } } : {}),
     },
     loading: false,
     error: null,
@@ -43,7 +43,7 @@ describe("JournalSettingsCard", () => {
   it("turns it off through the profile, sending only that setting", async () => {
     fetchMock.mockResolvedValue(
       new Response(
-        JSON.stringify({ success: true, data: { user: { ...withUser().auth.user, preferences: { askFailureReason: false } } } }),
+        JSON.stringify({ success: true, data: { user: { ...withUser().auth.user, preferences: { askFailureReason: false, coachReadsNotes: false } } } }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
     );

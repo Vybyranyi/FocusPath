@@ -1,6 +1,7 @@
 import { useState } from "react";
 import AccountActions from "@components/profile/AccountActions";
 import AppearanceCard from "@components/profile/AppearanceCard";
+import CoachSettingsCard from "@components/profile/CoachSettingsCard";
 import JournalSettingsCard from "@components/profile/JournalSettingsCard";
 import ChangePasswordDialog from "@components/profile/ChangePasswordDialog";
 import DeleteAccountDialog from "@components/profile/DeleteAccountDialog";
@@ -46,6 +47,7 @@ export default function ProfilePage() {
           <MyPublishedPlans />
           <AppearanceCard />
           <JournalSettingsCard />
+          <CoachSettingsCard />
           <AccountActions
             onChangePassword={() => setChangingPassword(true)}
             onDeleteAccount={() => setDeletingAccount(true)}

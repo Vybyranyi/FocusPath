@@ -460,7 +460,7 @@ describe("HabitCard", () => {
       auth: {
         user: {
           _id: "u", name: "A", surname: "B", birthday: "", gender: "male" as const, email: "a@b.c", createdAt: "", updatedAt: "",
-          ...(askFailureReason === undefined ? {} : { preferences: { askFailureReason } }),
+          ...(askFailureReason === undefined ? {} : { preferences: { askFailureReason, coachReadsNotes: false } }),
         },
         loading: false,
         error: null,

@@ -14,6 +14,7 @@ import type { CreateHabitFormValues, StepDraft } from "@/types/forms";
 import { apiRequest, errorMessage } from "@api/client";
 import { dayKeyOf, toDayKey, todayKey } from "@/lib/dates";
 import { publishPlan, unpublishPlan } from "@store/plansSlice";
+import { applyCoachCard } from "@store/coachSlice";
 import { draftFrequency, draftTarget } from "@/lib/schedule";
 
 export interface IHabitSlice {
@@ -544,6 +545,12 @@ const habitSlice = createSlice({
       .addCase(renameHabitDay.fulfilled, (state, action) => {
         applyHabit(state, action.payload.habit);
       });
+
+    // An applied offer changed the habit's rule. The day on screen is refetched by
+    // whoever applied it; here the habit is brought up to date everywhere else.
+    builder.addCase(applyCoachCard.fulfilled, (state, action) => {
+      applyHabit(state, action.payload.habit);
+    });
 
     // Habit-level fields only: the day itself comes back through `refreshDay`.
     for (const thunk of [addPause, endPause, removePause, addRestDay, removeRestDay]) {
