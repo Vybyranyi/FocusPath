@@ -132,6 +132,21 @@ export const fetchCurrentUser = createAsyncThunk(
     },
 );
 
+/** Changes settings, and only the ones sent. */
+export const setPreferences = createAsyncThunk(
+    "auth/setPreferences",
+    async (preferences: { askFailureReason?: boolean }, { rejectWithValue }) => {
+        try {
+            return await apiRequest<UserResponse>("/auth/profile", {
+                method: "PATCH",
+                body: { preferences },
+            });
+        } catch (error) {
+            return rejectWithValue(errorMessage(error));
+        }
+    },
+);
+
 export const updateProfile = createAsyncThunk(
     "auth/updateProfile",
     async (
@@ -269,6 +284,13 @@ const authSlice = createSlice({
                 state.loading = false;
                 state.error = action.payload as string;
             });
+
+        // No loading flag and no slice-wide error: a settings switch that blanked
+        // the profile page, or showed its failure above a form it is not part of,
+        // would be worse than the switch snapping back.
+        builder.addCase(setPreferences.fulfilled, (state, action) => {
+            state.user = action.payload.user;
+        });
 
         builder
             .addCase(changePassword.pending, (state) => {

@@ -1,15 +1,16 @@
 import CircleLoader from '@components/habit/CircleLoader';
 import { useSwipeable } from 'react-swipeable';
 import { useState, useRef, useCallback, useEffect, memo } from 'react';
-import type { DayStatus, HabitSummary } from '@shared/index';
+import type { DayStatus, HabitDay, HabitSummary } from '@shared/index';
 import { markHabitCompletion, setHabitValue } from '@store/habitSlice';
-import { useAppDispatch } from '@store/hooks';
+import { useAppDispatch, useAppSelector } from '@store/hooks';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { dayKeyOf, todayKey } from '@/lib/dates';
 import { isDone, isOff, isWeekMet, type DayState } from '@/lib/habitStatus';
 import { habitCompletion } from '@/lib/habitProgress';
 import CounterControl from '@components/habit/CounterControl';
 import HabitDetailPopup from '@components/habit/HabitDetailPopup';
+import ReasonSheet from '@components/habit/ReasonSheet';
 import { cn } from '@/lib/utils';
 import { useToast } from '@hooks/useToast';
 
@@ -102,6 +103,14 @@ function HabitCard({ habit }: IHabitCardProps) {
     );
   }, [habit.title, notify]);
 
+  // "Why not?", asked once: right after a day is failed, unless the person has
+  // said they would rather not be asked, or it was already asked for this day.
+  const asksWhy = useAppSelector((state) => state.auth.user?.preferences?.askFailureReason !== false);
+  const [askingWhy, setAskingWhy] = useState(false);
+  const askWhyIfFailed = useCallback((day: HabitDay) => {
+    if (asksWhy && day.state === 'failed' && !day.reasonPrompted) setAskingWhy(true);
+  }, [asksWhy]);
+
   const handleMark = useCallback((status: DayStatus) => {
     dispatch(markHabitCompletion({
       habitId: habit._id,
@@ -109,8 +118,9 @@ function HabitCard({ habit }: IHabitCardProps) {
       status,
     }))
       .unwrap()
+      .then(({ day }) => askWhyIfFailed(day))
       .catch(reportRefusal);
-  }, [dispatch, habit._id, habit.day.date, reportRefusal]);
+  }, [dispatch, habit._id, habit.day.date, reportRefusal, askWhyIfFailed]);
 
   /**
    * Counting is tapped quickly — three glasses in as many seconds — and every
@@ -127,6 +137,8 @@ function HabitCard({ habit }: IHabitCardProps) {
   const sendCount = useCallback((value: number) => {
     dispatch(setHabitValue({ habitId: habit._id, date: habit.day.date, value }))
       .unwrap()
+      // A limit passed is a failed day too, and is asked about the same way.
+      .then(({ day }) => askWhyIfFailed(day))
       .catch(reportRefusal)
       .finally(() => {
         // Only if no later tap has taken over the number on screen.
@@ -135,7 +147,7 @@ function HabitCard({ habit }: IHabitCardProps) {
           setCounted(null);
         }
       });
-  }, [dispatch, habit._id, habit.day.date, reportRefusal]);
+  }, [dispatch, habit._id, habit.day.date, reportRefusal, askWhyIfFailed]);
 
   const sendCountRef = useRef(sendCount);
   useEffect(() => {
@@ -296,6 +308,15 @@ function HabitCard({ habit }: IHabitCardProps) {
           )}
         </motion.div>
       </div>
+
+      {askingWhy && (
+        <ReasonSheet
+          habit={habit}
+          date={habit.day.date}
+          open={askingWhy}
+          onOpenChange={setAskingWhy}
+        />
+      )}
 
       <AnimatePresence>
         {showDetail && (

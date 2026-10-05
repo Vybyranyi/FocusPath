@@ -6,6 +6,7 @@ import type {
   HabitDay,
   HabitSummary,
   JournalEntry,
+  ReasonCode,
   Target,
   TimeOfDay,
 } from "@shared/index";
@@ -176,6 +177,51 @@ export const setHabitValue = createAsyncThunk(
         method: "PATCH",
         body: { date: dayKeyOf(date), value, today: todayKey() },
       });
+      return { habitId, habit, day };
+    } catch (error) {
+      return rejectWithValue(errorMessage(error));
+    }
+  },
+);
+
+/** A few words about how one day of a habit went. An empty note takes it away. */
+export const saveDayNote = createAsyncThunk(
+  "habit/saveDayNote",
+  async (
+    { habitId, date, note }: { habitId: string; date: string; note: string },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { habit, day } = await apiRequest<MarkResponse>(
+        `/habits/${habitId}/days/${dayKeyOf(date)}/note`,
+        { method: "PATCH", body: { note } },
+      );
+      return { habitId, habit, day };
+    } catch (error) {
+      return rejectWithValue(errorMessage(error));
+    }
+  },
+);
+
+/**
+ * Why a failed day was failed — or that the question was asked and set aside,
+ * so it is not asked again.
+ */
+export const saveFailureReason = createAsyncThunk(
+  "habit/saveFailureReason",
+  async (
+    {
+      habitId,
+      date,
+      reason,
+    }: { habitId: string; date: string; reason: { code: ReasonCode; text?: string } | { skipped: true } },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { habit, day } = await apiRequest<MarkResponse>(
+        `/habits/${habitId}/days/${dayKeyOf(date)}/reason`,
+        { method: "PATCH", body: reason },
+      );
       return { habitId, habit, day };
     } catch (error) {
       return rejectWithValue(errorMessage(error));
@@ -457,7 +503,9 @@ const habitSlice = createSlice({
 
     builder
       .addCase(markHabitCompletion.fulfilled, (state, action) => applyMark(state, action.payload))
-      .addCase(setHabitValue.fulfilled, (state, action) => applyMark(state, action.payload));
+      .addCase(setHabitValue.fulfilled, (state, action) => applyMark(state, action.payload))
+      .addCase(saveDayNote.fulfilled, (state, action) => applyMark(state, action.payload))
+      .addCase(saveFailureReason.fulfilled, (state, action) => applyMark(state, action.payload));
 
     /** Flips a step in the day view's copy of the day it was ticked on. */
     const flipStep = (state: IHabitSlice, arg: { habitId: string; stepId: string; date: string }) => {

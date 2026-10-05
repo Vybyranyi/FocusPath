@@ -9,6 +9,7 @@ import {
   endPause,
   removePause,
   removeRestDay,
+  saveDayNote,
   toggleHabitStep,
 } from '@store/habitSlice';
 import { habitCompletion } from '@/lib/habitProgress';
@@ -20,6 +21,8 @@ import Button from '@components/ui/Button';
 import PublishPlanSheet from '@components/explore/PublishPlanSheet';
 import EditHabitSheet from '@components/habit/EditHabitSheet';
 import PauseSheet from '@components/habit/PauseSheet';
+import ReasonSheet from '@components/habit/ReasonSheet';
+import { NOTE_MAX, REASON_LABELS } from '@/lib/journal';
 import { cn } from '@/lib/utils';
 import { useToast } from '@hooks/useToast';
 import { useNavigate } from 'react-router';
@@ -117,6 +120,8 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
   const [publishing, setPublishing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [pausing, setPausing] = useState(false);
+  const [changingReason, setChangingReason] = useState(false);
+  const [note, setNote] = useState(habit.day.note ?? '');
 
   /**
    * Radix hands focus back to its own `Dialog.Trigger`. This sheet is mounted
@@ -171,6 +176,16 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
    * not yet begun — or begins today — is simply taken back, which the server
    * allows and which is what "resume" means for it.
    */
+  /** Kept when the field is left, not on every keystroke: a note is a thought, not a stream. */
+  const handleSaveNote = () => {
+    const next = note.trim();
+    if (next === (habit.day.note ?? '')) return;
+
+    dispatch(saveDayNote({ habitId: habit._id, date: habit.day.date, note: next }))
+      .unwrap()
+      .catch(refusal);
+  };
+
   const handleResume = () => {
     if (!currentPause) return;
     const request = dayKeyOf(currentPause.from) >= yesterday
@@ -210,7 +225,7 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
      * it. Two stacked sheets meant two overlays, two blurs and a card the user
      * could see but not reach; cancelling brings this one straight back.
      */
-    <Dialog.Root open={!publishing && !editing && !pausing} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Dialog.Root open={!publishing && !editing && !pausing && !changingReason} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay asChild>
           <motion.div
@@ -474,6 +489,43 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                 </div>
             </div>
 
+            {/* What happened on this day, in the person's own words. Not for a
+                day that has not come. */}
+            {!isFutureDay && (
+              <div className="flex flex-col gap-2">
+                <label htmlFor={`note-${habit._id}`} className="field-label text-ink-2">
+                  Note for this day
+                </label>
+                <textarea
+                  id={`note-${habit._id}`}
+                  rows={2}
+                  maxLength={NOTE_MAX}
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                  onBlur={handleSaveNote}
+                  placeholder="How did it go?"
+                  className="w-full rounded-xl bg-canvas p-3 text-xs leading-5 text-ink placeholder:text-ink-muted border border-line focus:border-accent"
+                />
+              </div>
+            )}
+
+            {habit.day.state === 'failed' && (
+              <div className="flex items-center justify-between gap-3 rounded-2xl bg-danger-soft p-4">
+                <p className="alternative text-ink">
+                  {habit.day.failureReason
+                    ? <>Why not: <strong>{REASON_LABELS[habit.day.failureReason.code]}</strong>{habit.day.failureReason.text ? ` — ${habit.day.failureReason.text}` : ''}</>
+                    : 'No reason given for this day.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setChangingReason(true)}
+                  className="min-h-11 shrink-0 alternative text-accent cursor-pointer"
+                >
+                  {habit.day.failureReason ? 'Change' : 'Add'}
+                </button>
+              </div>
+            )}
+
             {/* The day's checklist */}
             {steps.length > 0 && (
                 <div className="flex flex-col gap-3">
@@ -530,6 +582,16 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
           now rather than from whatever was typed and abandoned last time. */}
       {editing && (
         <EditHabitSheet habit={habit} open={editing} onOpenChange={setEditing} />
+      )}
+
+      {changingReason && (
+        <ReasonSheet
+          habit={habit}
+          date={habit.day.date}
+          current={habit.day.failureReason}
+          open={changingReason}
+          onOpenChange={setChangingReason}
+        />
       )}
 
       {pausing && (
