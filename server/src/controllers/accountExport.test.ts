@@ -14,7 +14,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 
 const createHabit = async (client: Client, title: string) =>
     (await write(client, 'post', '/habits/')
-        .send({ title, startDate: today(), duration: 3, type: 'build', color: 'blue', icon: 'books' })
+        .send({ title, startDate: today(), sessions: 3, type: 'build', color: 'blue', icon: 'books' })
         .expect(201)).body.data.habit;
 
 describe('GET /auth/export', () => {
@@ -32,7 +32,9 @@ describe('GET /auth/export', () => {
         expect(exported.exportedAt).toEqual(expect.any(String));
         expect(exported.user.email).toBe(validUser.email);
         expect(exported.habits).toHaveLength(1);
-        expect(exported.habits[0].dailyCompletions[0].status).toBe('done');
+        expect(exported.habits[0].program).toHaveLength(3);
+        expect(exported.habits[0].days).toHaveLength(1);
+        expect(exported.habits[0].days[0]).toMatchObject({ status: 'done', completedSteps: [] });
         expect(exported.plans).toHaveLength(1);
     });
 

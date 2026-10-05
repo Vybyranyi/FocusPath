@@ -7,10 +7,9 @@ import Habit from '@models/Habit';
 import Plan from '@models/Plan';
 import User from '@models/User';
 import type { HabitType, PlanCategory } from '@shared/index';
-import { buildSchedule } from '@services/habitSchedule';
 import { generateHabitPlan } from '@services/openAiService';
 import { MODERATION_MODEL, reviewPlan } from '@services/moderationService';
-import { scheduleHash } from '@services/planContent';
+import { contentHash } from '@services/planContent';
 import { startOfUtcDay } from '@utils/dates';
 import { logger } from '@config/logger';
 
@@ -125,17 +124,12 @@ export const seedOfficialPlans = async (authorId: mongoose.Types.ObjectId): Prom
             description: seed.description,
             category: seed.category,
             startDate,
-            duration: seed.duration,
             type: seed.type,
             color: seed.color,
             icon: seed.icon,
             userId: authorId,
-            currentStreak: 0,
-            isCompleted: false,
-            dailyCompletions: buildSchedule(startDate, seed.duration, seed.title).map((day, index) => ({
-                ...day,
-                dayTitle: dayTitles[index],
-            })),
+            rules: [{ effectiveFrom: startDate, frequency: { kind: 'daily' } }],
+            program: dayTitles.map(title => ({ title })),
         });
 
         const plan = await Plan.create({
@@ -150,7 +144,7 @@ export const seedOfficialPlans = async (authorId: mongoose.Types.ObjectId): Prom
             days: dayTitles.map(dayTitle => ({ dayTitle })),
             author: { userId: authorId },
             sourceHabitId: habit._id,
-            contentHash: scheduleHash(seed.duration, dayTitles),
+            contentHash: contentHash({ frequency: { kind: 'daily' } }, dayTitles),
             official: true,
             moderation: {
                 checkedAt: new Date(),

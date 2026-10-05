@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
-import { migrateHabitModelV2, SCHEMA_VERSION } from './migrateHabitModelV2';
+import { SCHEMA_VERSION } from '@models/Habit';
+import { migrateHabitModelV2 } from './migrateHabitModelV2';
 
 const NOW = new Date('2026-03-18T10:00:00.000Z');
 const utc = (day: number) => new Date(Date.UTC(2026, 2, day));

@@ -1,5 +1,4 @@
 import mongoose from 'mongoose';
-import Habit from '@models/Habit';
 import { migrateDayStatuses } from './migrateDayStatus';
 
 /**
@@ -98,8 +97,8 @@ describe('migrateDayStatuses', () => {
         await expect(migrateDayStatuses()).resolves.toMatchObject({ habits: 1 });
     });
 
-    it('does not disturb a habit the current release wrote', async () => {
-        const habit = await Habit.create({
+    it('does not disturb a habit that already has statuses', async () => {
+        const result = await mongoose.connection.collection('habits').insertOne({
             title: 'Already new',
             startDate: new Date('2026-03-15T00:00:00.000Z'),
             duration: 1,
@@ -118,7 +117,7 @@ describe('migrateDayStatuses', () => {
 
         await migrateDayStatuses();
 
-        const reread = await Habit.findById(habit._id);
-        expect(reread!.dailyCompletions[0].status).toBe('failed');
+        const reread = await readRaw(result.insertedId);
+        expect(reread?.dailyCompletions[0].status).toBe('failed');
     });
 });

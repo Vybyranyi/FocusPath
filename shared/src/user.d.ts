@@ -1,4 +1,4 @@
-import type { Habit } from "./habit";
+import type { HabitExport } from "./habit";
 import type { Plan } from "./plan";
 
 export type Gender = "male" | "female";
@@ -47,6 +47,6 @@ export interface AccountExport {
     /** ISO 8601 timestamp of when the export was made. */
     exportedAt: string;
     user: User;
-    habits: Habit[];
+    habits: HabitExport[];
     plans: Plan[];
 }

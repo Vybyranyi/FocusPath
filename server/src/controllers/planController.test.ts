@@ -39,7 +39,7 @@ const createHabit = async (client: Client, overrides: Record<string, unknown> = 
             title: 'Read daily',
             description: 'Twenty pages a day',
             startDate: dayKey(0),
-            duration: 3,
+            sessions: 3,
             type: 'build',
             color: 'blue',
             icon: 'books',
@@ -186,7 +186,7 @@ describe('Plan Controller', () => {
 
     describe('GET /plans/:id', () => {
         it('gives a signed-in reader the whole plan', async () => {
-            const habit = await createHabit(client, { duration: 10 });
+            const habit = await createHabit(client, { sessions: 10 });
             const plan = await publish(client, habit._id);
 
             const response = await client.agent.get(`/plans/${plan._id}`).expect(200);
@@ -196,7 +196,7 @@ describe('Plan Controller', () => {
         });
 
         it('gives a visitor with no session the first three days only', async () => {
-            const habit = await createHabit(client, { duration: 10 });
+            const habit = await createHabit(client, { sessions: 10 });
             const plan = await publish(client, habit._id);
 
             const response = await request(app).get(`/plans/${plan._id}`).expect(200);
@@ -209,7 +209,7 @@ describe('Plan Controller', () => {
         });
 
         it('reads on as a guest when the session cookie is unusable', async () => {
-            const habit = await createHabit(client, { duration: 10 });
+            const habit = await createHabit(client, { sessions: 10 });
             const plan = await publish(client, habit._id);
 
             const response = await request(app)

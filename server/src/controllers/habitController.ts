@@ -5,14 +5,20 @@ import { UnauthorizedError } from '@errors/AppError';
 import { startOfUtcDay } from '@utils/dates';
 import type { TypedRequest } from '@middlewares/validate';
 import type {
+    AddPauseDto,
+    AddRestDayDto,
     CreateHabitDto,
     CreateHabitFromPlanDto,
+    EndPauseDto,
     HabitParams,
     MarkCompletionDto,
+    PauseParams,
+    RestDayParams,
+    SetValueDto,
     StepParams,
     ToggleStepDto,
-    UpdateDayTitleDto,
     UpdateHabitDto,
+    UpdateSessionTitleDto,
 } from '@validation/habitSchemas';
 
 // Handlers translate HTTP into a service call and back. Ownership, scheduling
@@ -41,12 +47,16 @@ export const createHabitFromPlan = async (
 export const getHabitsForDate = async (req: Request, res: Response) => {
     // Read from req.query rather than a validated copy: Express 5 silently
     // discards an assignment to it, so the schema checks and the handler parses.
-    const { date } = req.query;
+    const { date, today } = req.query;
     const targetDate = startOfUtcDay(typeof date === 'string' && date ? date : new Date());
 
     return ok(res, {
         date: targetDate,
-        habits: await habitService.getHabitsForDate(requireUserId(req), targetDate),
+        habits: await habitService.getHabitsForDate(
+            requireUserId(req),
+            targetDate,
+            typeof today === 'string' && today ? new Date(today) : undefined,
+        ),
     });
 };
 
@@ -66,22 +76,48 @@ export const deleteHabit = async (req: TypedRequest<unknown, HabitParams>, res: 
     return ok(res, { habitId: req.params.id });
 };
 
-export const updateDayTitle = async (
-    req: TypedRequest<UpdateDayTitleDto, HabitParams>,
+export const updateSessionTitle = async (
+    req: TypedRequest<UpdateSessionTitleDto, HabitParams>,
     res: Response,
-) => ok(res, { habit: await habitService.setDayTitle(requireUserId(req), req.params.id, req.body) });
+) =>
+    ok(res, {
+        habit: await habitService.setSessionTitle(requireUserId(req), req.params.id, req.body),
+    });
 
 export const markHabitCompletion = async (
     req: TypedRequest<MarkCompletionDto, HabitParams>,
     res: Response,
-) =>
-    ok(res, {
-        habit: await habitService.markCompletion(requireUserId(req), req.params.id, req.body),
-    });
+) => ok(res, await habitService.markCompletion(requireUserId(req), req.params.id, req.body));
+
+export const setHabitValue = async (
+    req: TypedRequest<SetValueDto, HabitParams>,
+    res: Response,
+) => ok(res, await habitService.setValue(requireUserId(req), req.params.id, req.body));
 
 export const toggleStep = async (req: TypedRequest<ToggleStepDto, StepParams>, res: Response) => {
     const { id, stepId } = req.params;
-    const { habit, completed } = await habitService.toggleStep(requireUserId(req), id, stepId, req.body);
+    const result = await habitService.toggleStep(requireUserId(req), id, stepId, req.body);
 
-    return ok(res, { stepId, completed, habit });
+    return ok(res, { stepId, ...result });
 };
+
+export const addPause = async (req: TypedRequest<AddPauseDto, HabitParams>, res: Response) =>
+    created(res, { habit: await habitService.addPause(requireUserId(req), req.params.id, req.body) });
+
+export const endPause = async (req: TypedRequest<EndPauseDto, PauseParams>, res: Response) =>
+    ok(res, {
+        habit: await habitService.endPause(requireUserId(req), req.params.id, req.params.pauseId, req.body),
+    });
+
+export const removePause = async (req: TypedRequest<unknown, PauseParams>, res: Response) =>
+    ok(res, {
+        habit: await habitService.removePause(requireUserId(req), req.params.id, req.params.pauseId),
+    });
+
+export const addRestDay = async (req: TypedRequest<AddRestDayDto, HabitParams>, res: Response) =>
+    created(res, { habit: await habitService.addRestDay(requireUserId(req), req.params.id, req.body) });
+
+export const removeRestDay = async (req: TypedRequest<unknown, RestDayParams>, res: Response) =>
+    ok(res, {
+        habit: await habitService.removeRestDay(requireUserId(req), req.params.id, new Date(req.params.date)),
+    });

@@ -4,6 +4,7 @@ import path from 'path';
 import mongoose from 'mongoose';
 import { connectDB } from '@config/db';
 import { logger } from '@config/logger';
+import { SCHEMA_VERSION } from '@models/Habit';
 import { startOfUtcDay } from '@utils/dates';
 import {
     buildTimeline,
@@ -18,8 +19,6 @@ export interface HabitModelV2Report {
     plansBackfilled: number;
 }
 
-/** What marks a habit as already in the new shape. */
-export const SCHEMA_VERSION = 2;
 
 interface LegacyDay {
     dayTitle?: string;

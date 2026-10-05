@@ -23,22 +23,29 @@ export interface HabitStep {
  * There is deliberately no `missed` here. A day that is still `pending` once it
  * is over is missed, and that follows from the date — storing it would need a
  * job flipping rows at midnight in every user's own timezone, and would be
- * wrong between the flip and the read. See `dayState` on the client.
+ * wrong between the flip and the read. The server derives it — see
+ * `resolveDayState` in `habitTimeline.ts`.
  */
 export type DayStatus = "pending" | "done" | "failed";
 
-/** One scheduled day of a habit. The schedule is generated up front, one entry per day of `duration`. */
-export interface DailyCompletion {
-    _id: string;
-    dayTitle: string;
-    /** ISO 8601 date string, normalised to midnight UTC. */
-    date: string;
-    status: DayStatus;
-    /** Ids of the habit's steps ticked on this day. */
-    completedSteps: string[];
+/**
+ * How far through a habit is, over the slots that are already over.
+ *
+ * The future is not in the denominator: it would show 11% on the tenth day of
+ * a flawless ninety-day programme.
+ */
+export interface HabitProgress {
+    /** Slots that were done. */
+    done: number;
+    /** Slots that are over — done, failed or missed. */
+    decided: number;
+    /** `done` over `decided`, 0–100. */
+    percentage: number;
+    /** Length of the programme in sessions; absent for a habit with no end. */
+    sessionsTotal?: number;
 }
 
-/** A habit in full, as returned by `GET /habits` and `GET /habits/:id`. */
+/** A habit as the API returns it. */
 export interface Habit {
     _id: string;
     title: string;
@@ -47,14 +54,27 @@ export interface Habit {
     steps?: HabitStep[];
     /** ISO 8601 date string, normalised to midnight UTC. */
     startDate: string;
-    /** Number of days the habit runs for. Always equals `dailyCompletions.length`. */
-    duration: number;
     type: HabitType;
     color: string;
     icon: string;
+    timeOfDay: TimeOfDay;
+    /** What the habit asked for, from when. The last one in force today is `frequency`/`target`. */
+    rules: HabitRule[];
+    frequency: Frequency;
+    target?: Target;
+    /** Length of the programme in sessions. Absent for a habit with no end. */
+    sessions?: number;
+    /** ISO 8601 date string. Last day of a programme; a forecast until it has passed. */
+    endDate?: string;
+    pauses: HabitPause[];
+    /** ISO 8601 date strings. */
+    restDays: string[];
     currentStreak: number;
+    /** What `currentStreak` counts: days, or weeks for a weekly habit. */
+    streakUnit: "day" | "week";
+    /** Every session of a programme is behind. Never true for a habit with no end. */
     isCompleted: boolean;
-    dailyCompletions: DailyCompletion[];
+    progress: HabitProgress;
     /** The plan this habit was taken from, when it came out of the library. */
     fromPlanId?: string;
     /**
@@ -67,17 +87,29 @@ export interface Habit {
     updatedAt: string;
 }
 
+/** One day of a habit, worked out by the server. */
+export interface HabitDay {
+    /** ISO 8601 date string, normalised to midnight UTC. */
+    date: string;
+    state: DayState;
+    /** The counted quantity, for a habit with a target. */
+    value?: number;
+    /** The target in force on this day. */
+    target?: Target;
+    /** Ids of the habit's steps ticked on this day. */
+    completedSteps: string[];
+    /** Which session of a programme this day carries. */
+    session?: { index: number; total: number; title: string };
+    /** Where a weekly habit stands this week. */
+    week?: { done: number; target: number };
+}
+
 /**
- * A habit narrowed to a single day, as returned by `GET /habits/daily`.
- *
- * The aggregation swaps the full schedule for just that day's entry plus a
- * precomputed total, so listing a day never ships every other day with it.
+ * A habit narrowed to one day, as returned by `GET /habits/daily`: the habit
+ * itself plus how that day stands.
  */
-export interface HabitSummary
-    extends Omit<Habit, "dailyCompletions" | "createdAt" | "updatedAt"> {
-    dayInfo: DailyCompletion;
-    /** How many days of the whole habit are done, across the entire schedule. */
-    completedCount: number;
+export interface HabitSummary extends Habit {
+    day: HabitDay;
 }
 
 /**
@@ -126,3 +158,18 @@ export interface HabitPause {
  * habit is deliberately not asked for.
  */
 export type DayState = DayStatus | "missed" | "paused" | "rest";
+
+/** One entry of a habit's log, as the export hands it over. */
+export interface LoggedDay {
+    /** ISO 8601 date string, normalised to midnight UTC. */
+    day: string;
+    status?: Exclude<DayStatus, "pending">;
+    value?: number;
+    completedSteps: string[];
+}
+
+/** A habit with everything it holds: the task of each session, and every day that was logged. */
+export interface HabitExport extends Habit {
+    program?: Array<{ title: string }>;
+    days: LoggedDay[];
+}
