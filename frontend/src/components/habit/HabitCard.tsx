@@ -2,12 +2,13 @@ import CircleLoader from '@components/habit/CircleLoader';
 import { useSwipeable } from 'react-swipeable';
 import { useState, useRef, useCallback, memo } from 'react';
 import type { DayStatus, HabitSummary } from '@shared/index';
-import { markHabitCompletion } from '@store/habitSlice';
+import { markHabitCompletion, setHabitValue } from '@store/habitSlice';
 import { useAppDispatch } from '@store/hooks';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { dayKeyOf, todayKey } from '@/lib/dates';
-import { isOff, type DayState } from '@/lib/habitStatus';
+import { isDone, isOff, isWeekMet, type DayState } from '@/lib/habitStatus';
 import { habitCompletion } from '@/lib/habitProgress';
+import CounterControl from '@components/habit/CounterControl';
 import HabitDetailPopup from '@components/habit/HabitDetailPopup';
 import { cn } from '@/lib/utils';
 import { useToast } from '@hooks/useToast';
@@ -80,7 +81,23 @@ function HabitCard({ habit }: IHabitCardProps) {
   const style = STATE_STYLE[state];
   const off = isOff(habit.day);
 
+  // A weekly habit whose week is met has nothing more to ask today, and one
+  // that has a goal is counted instead of ticked.
+  const weekMet = isWeekMet(habit.day) && !isDone(habit.day);
+  const target = habit.day.target;
+  const week = habit.day.week;
+
   const progress = habitCompletion(habit.progress);
+
+  // Said out loud. A refused mark used to change nothing and say nothing: the
+  // card simply stayed as it was, which reads as a swipe that did not register,
+  // and the user tries again into the same failure.
+  const reportRefusal = useCallback((reason: unknown) => {
+    notify(
+      `Could not save “${habit.title}” — ${typeof reason === 'string' ? reason : 'try again'}`,
+      'danger',
+    );
+  }, [habit.title, notify]);
 
   const handleMark = useCallback((status: DayStatus) => {
     dispatch(markHabitCompletion({
@@ -89,25 +106,28 @@ function HabitCard({ habit }: IHabitCardProps) {
       status,
     }))
       .unwrap()
-      // Said out loud. A refused mark used to change nothing and say nothing:
-      // the card simply stayed as it was, which reads as a swipe that did not
-      // register, and the user tries again into the same failure.
-      .catch((reason: unknown) => {
-        notify(
-          `Could not save “${habit.title}” — ${typeof reason === 'string' ? reason : 'try again'}`,
-          'danger',
-        );
-      });
-  }, [dispatch, habit._id, habit.day.date, habit.title, notify]);
+      .catch(reportRefusal);
+  }, [dispatch, habit._id, habit.day.date, reportRefusal]);
+
+  const handleCount = useCallback((value: number) => {
+    dispatch(setHabitValue({ habitId: habit._id, date: habit.day.date, value }))
+      .unwrap()
+      .catch(reportRefusal);
+  }, [dispatch, habit._id, habit.day.date, reportRefusal]);
+
+  // Marks only make sense for a day that can be marked: not a pause, not a
+  // rest day, not one that has not come, and — for a weekly habit — not once
+  // the week is full. A counted habit takes a count instead of a tick.
+  const markable = !isFuture && !off && !weekMet;
 
   const handlers = useSwipeable({
     onSwiping: e => {
-      if (isFuture || off) return;
+      if (isFuture || off || weekMet || target) return;
       setSwipeDelta(e.deltaX);
       if (Math.abs(e.deltaX) > 10) wasSwipedRef.current = true;
     },
     onSwiped: e => {
-      if (!isFuture && !off) {
+      if (markable && !target) {
         if (e.deltaX > 80)       handleMark('done');
         else if (e.deltaX < -80) handleMark('failed');
       }
@@ -131,7 +151,7 @@ function HabitCard({ habit }: IHabitCardProps) {
     <>
       <div className="relative overflow-hidden rounded-2xl bg-surface">
         {/* What the gesture will do, shown underneath the card as it moves. */}
-        {!isFuture && !off && swipeDelta !== 0 && (
+        {markable && !target && swipeDelta !== 0 && (
           <div
             aria-hidden
             className={cn(
@@ -154,7 +174,7 @@ function HabitCard({ habit }: IHabitCardProps) {
             'relative z-20 flex items-center justify-between gap-3 p-4 rounded-2xl bg-surface',
             'ring-inset',
             style ? `ring-[1.5px] ${style.ring}` : 'ring-1 ring-line',
-            isFuture && 'opacity-60',
+            (isFuture || weekMet) && 'opacity-60',
           )}
           // Read by the tests, and by anything that needs the verdict without
           // reverse-engineering a colour.
@@ -171,10 +191,20 @@ function HabitCard({ habit }: IHabitCardProps) {
               <span className="alternative block text-ink-muted truncate">
                 {habit.day.session?.title || habit.description || habit.title}
               </span>
+              {week && (
+                <span className="chip block text-ink-muted">
+                  {week.done} / {week.target} this week
+                </span>
+              )}
             </span>
             {style && (
               <span className={cn('chip px-2 py-0.5 rounded-full shrink-0', style.badge)}>
                 {style.word}
+              </span>
+            )}
+            {weekMet && !style && (
+              <span className="chip px-2 py-0.5 rounded-full shrink-0 bg-success-soft text-success">
+                Week done
               </span>
             )}
           </button>
@@ -182,7 +212,17 @@ function HabitCard({ habit }: IHabitCardProps) {
           {/* These were `hidden lg:flex`, so below 1024px the only way to mark
               a habit was a swipe nobody had been told about — and there was no
               keyboard path at any width. */}
-          {!isFuture && !off && (
+          {markable && target && (
+            <CounterControl
+              title={habit.title}
+              type={habit.type}
+              target={target}
+              value={habit.day.value}
+              onChange={handleCount}
+            />
+          )}
+
+          {markable && !target && (
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"

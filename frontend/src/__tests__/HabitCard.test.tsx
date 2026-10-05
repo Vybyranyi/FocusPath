@@ -1,7 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import { format } from "date-fns";
-import type { DayState } from "@shared/index";
+import type { DayState, HabitSummary } from "@shared/index";
 import HabitCard from "@components/habit/HabitCard";
 import { makeHabitSummary, renderWithProviders } from "../testUtils";
 
@@ -226,5 +226,165 @@ describe("HabitCard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Mark Read done" }));
 
     expect(await screen.findByText(/could not save “read” — the habit is not scheduled on that date/i)).toBeInTheDocument();
+  });
+
+  describe("counting a quantity", () => {
+    const fetchMock = vi.fn();
+
+    const ok = (data: unknown) =>
+      new Response(JSON.stringify({ success: true, data }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    const counted = (day: Partial<HabitSummary["day"]> = {}, habit: Partial<HabitSummary> = {}) =>
+      renderWithProviders(
+        <HabitCard
+          habit={makeHabitSummary({
+            title: "Water",
+            day: {
+              completedSteps: [],
+              date: utcMidnightOf(new Date()),
+              state: "pending",
+              target: { value: 8, unit: "glasses" },
+              ...day,
+            },
+            ...habit,
+          })}
+        />,
+      );
+
+    const bodyAt = (call: number) =>
+      JSON.parse(String((fetchMock.mock.calls[call][1] as RequestInit).body));
+
+    beforeEach(() => {
+      vi.stubGlobal("fetch", fetchMock);
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValue(ok({ habit: makeHabitSummary(), day: { date: "", state: "pending", completedSteps: [] } }));
+      document.cookie = "csrf_token=token; path=/";
+    });
+
+    it("shows how far the day has got towards the goal", () => {
+      counted({ value: 3 });
+
+      expect(screen.getByText("3 / 8")).toBeInTheDocument();
+      expect(screen.getByText("glasses")).toBeInTheDocument();
+    });
+
+    it("offers a count instead of a tick", () => {
+      counted();
+
+      expect(screen.queryByRole("button", { name: "Mark Water done" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /one more glasses for Water/i })).toBeInTheDocument();
+    });
+
+    it("adds one with a tap", () => {
+      counted({ value: 3 });
+
+      fireEvent.click(screen.getByRole("button", { name: /one more glasses for Water/i }));
+
+      expect(String(fetchMock.mock.calls[0][0])).toContain("/habits/habit-1/value");
+      expect(bodyAt(0)).toMatchObject({ value: 4 });
+    });
+
+    it("takes one off, and cannot go below nothing", () => {
+      const { unmount } = counted({ value: 3 });
+      fireEvent.click(screen.getByRole("button", { name: /one less glasses for Water/i }));
+      expect(bodyAt(0)).toMatchObject({ value: 2 });
+      unmount();
+
+      counted({ value: 0 });
+      expect(screen.getByRole("button", { name: /one less glasses for Water/i })).toBeDisabled();
+    });
+
+    it("takes a number typed in, for the day that was fourteen", () => {
+      counted({ value: 3 });
+
+      fireEvent.click(screen.getByRole("button", { name: /set glasses for Water/i }));
+      const field = screen.getByRole("spinbutton");
+      fireEvent.change(field, { target: { value: "14" } });
+      fireEvent.keyDown(field, { key: "Enter" });
+
+      expect(bodyAt(0)).toMatchObject({ value: 14 });
+    });
+
+    it("leaves the day alone when the typed number is dropped with Escape", () => {
+      counted({ value: 3 });
+
+      fireEvent.click(screen.getByRole("button", { name: /set glasses for Water/i }));
+      const field = screen.getByRole("spinbutton");
+      fireEvent.change(field, { target: { value: "14" } });
+      fireEvent.keyDown(field, { key: "Escape" });
+
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("has nothing to count on a day that has not come", () => {
+      counted({ date: utcMidnightOf(daysFromToday(1)) });
+
+      expect(screen.queryByRole("button", { name: /one more glasses/i })).not.toBeInTheDocument();
+    });
+
+    describe("a limit to quit", () => {
+      const limit = { value: 5, unit: "cigarettes" };
+
+      it("offers a clean day until anything is counted, and records it as zero", () => {
+        counted({ target: limit }, { type: "quit", title: "Smoking" });
+
+        fireEvent.click(screen.getByRole("button", { name: /Mark Smoking a clean day/ }));
+
+        expect(bodyAt(0)).toMatchObject({ value: 0 });
+      });
+
+      it("stops offering it once the day has a value", () => {
+        counted({ target: limit, value: 0 }, { type: "quit", title: "Smoking" });
+
+        expect(screen.queryByRole("button", { name: /a clean day/ })).not.toBeInTheDocument();
+      });
+
+      it("does not offer a clean day to a habit that is built", () => {
+        counted();
+
+        expect(screen.queryByRole("button", { name: /a clean day/ })).not.toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("a habit a number of times a week", () => {
+    const weekly = (week: { done: number; target: number }, state: DayState = "pending") =>
+      renderWithProviders(
+        <HabitCard
+          habit={makeHabitSummary({
+            frequency: { kind: "weekly", times: week.target },
+            streakUnit: "week",
+            day: { completedSteps: [], date: utcMidnightOf(new Date()), state, week },
+          })}
+        />,
+      );
+
+    it("says how the week stands", () => {
+      weekly({ done: 2, target: 3 });
+
+      expect(screen.getByText("2 / 3 this week")).toBeInTheDocument();
+    });
+
+    it("can still be marked while the week is open", () => {
+      weekly({ done: 2, target: 3 });
+
+      expect(screen.getByRole("button", { name: "Mark Read done" })).toBeInTheDocument();
+    });
+
+    it("rests, muted, once the week is met", () => {
+      weekly({ done: 3, target: 3 });
+
+      expect(screen.getByText("Week done")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Mark Read done" })).not.toBeInTheDocument();
+    });
+
+    it("keeps the day that met the week open to being taken back", () => {
+      weekly({ done: 3, target: 3 }, "done");
+
+      expect(screen.getByRole("button", { name: "Mark Read done" })).toHaveAttribute("aria-pressed", "true");
+    });
   });
 });
