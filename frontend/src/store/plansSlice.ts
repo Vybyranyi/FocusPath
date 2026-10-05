@@ -148,7 +148,8 @@ export interface TakePlanArgs {
   /** Length of the programme, in sessions. */
   sessions?: number;
   frequency?: Frequency;
-  target?: Target;
+  /** `null` drops the goal the plan came with. */
+  target?: Target | null;
 }
 
 export const takePlan = createAsyncThunk(

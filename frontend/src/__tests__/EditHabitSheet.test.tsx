@@ -174,4 +174,109 @@ describe("EditHabitSheet", () => {
       expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
     });
   });
+
+  describe("the schedule", () => {
+    it("starts from the rhythm, the goal and the part of the day the habit has", () => {
+      open(
+        makeHabitSummary({
+          frequency: { kind: "weekly", times: 4 },
+          target: { value: 8, unit: "glasses" },
+          timeOfDay: "evening",
+        }),
+      );
+
+      expect(screen.getByRole("radio", { name: "Per week" })).toHaveAttribute("aria-checked", "true");
+      expect(screen.getByLabelText("Times per week")).toHaveValue(4);
+      expect(screen.getByLabelText("Daily goal")).toHaveValue(8);
+      expect(screen.getByLabelText("Unit")).toHaveValue("glasses");
+      expect(screen.getByRole("radio", { name: "Evening" })).toHaveAttribute("aria-checked", "true");
+    });
+
+    it("sends nothing about it while it is untouched", () => {
+      open(makeHabitSummary({ frequency: { kind: "weekly", times: 3 }, target: { value: 5, unit: "km" } }));
+
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    });
+
+    it("sends a new rhythm", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: serverHabit }));
+      open();
+
+      fireEvent.click(screen.getByRole("radio", { name: "Per week" }));
+      fireEvent.change(screen.getByLabelText("Times per week"), { target: { value: "2" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(bodyAt(0)).toEqual({ frequency: { kind: "weekly", times: 2 } });
+    });
+
+    it("sends a goal that was added", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: serverHabit }));
+      open();
+
+      fireEvent.click(screen.getByRole("switch", { name: "Count a quantity" }));
+      fireEvent.change(screen.getByLabelText("Daily goal"), { target: { value: "8" } });
+      fireEvent.change(screen.getByLabelText("Unit"), { target: { value: "glasses" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(bodyAt(0)).toEqual({ target: { value: 8, unit: "glasses" } });
+    });
+
+    it("sends null to take the goal away", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: serverHabit }));
+      open(makeHabitSummary({ target: { value: 8, unit: "glasses" } }));
+
+      fireEvent.click(screen.getByRole("switch", { name: "Count a quantity" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(bodyAt(0)).toEqual({ target: null });
+    });
+
+    it("sends the part of the day on its own", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: serverHabit }));
+      open();
+
+      fireEvent.click(screen.getByRole("radio", { name: "Morning" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      expect(bodyAt(0)).toEqual({ timeOfDay: "morning" });
+    });
+
+    it("says a new rhythm applies from today and leaves the past alone", () => {
+      open();
+
+      fireEvent.click(screen.getByRole("radio", { name: "Per week" }));
+
+      expect(screen.getByText(/applies from today/i)).toBeInTheDocument();
+    });
+
+    it("does not say so for a change of the part of the day", () => {
+      open();
+
+      fireEvent.click(screen.getByRole("radio", { name: "Morning" }));
+
+      expect(screen.queryByText(/applies from today/i)).not.toBeInTheDocument();
+    });
+
+    it("warns a habit from the library that a new rhythm leaves the plan's score", () => {
+      open(makeHabitSummary({ fromPlanId: "plan-1" }));
+
+      fireEvent.click(screen.getByRole("radio", { name: "Per week" }));
+
+      expect(screen.getByText(/stops counting towards that plan/i)).toBeInTheDocument();
+    });
+
+    it("will not save a weekdays habit with no day chosen", () => {
+      open();
+
+      fireEvent.click(screen.getByRole("radio", { name: "Days" }));
+      fireEvent.change(field(/habit name/i), { target: { value: "Read more" } });
+
+      expect(screen.getByText("Choose at least one day")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+    });
+  });
 });

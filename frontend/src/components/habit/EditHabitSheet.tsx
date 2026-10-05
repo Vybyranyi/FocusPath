@@ -7,7 +7,16 @@ import CategoryPicker from "@components/pickers/CategoryPicker";
 import ColorPicker from "@components/pickers/ColorPicker";
 import EmojiPicker from "@components/pickers/EmojiPicker";
 import StepsEditor from "@components/habit/StepsEditor";
+import ScheduleFields from "@components/pickers/ScheduleFields";
 import { stepsProblem } from "@/lib/steps";
+import {
+  draftFrequency,
+  draftOf,
+  draftTarget,
+  sameFrequency,
+  sameTarget,
+  scheduleProblems,
+} from "@/lib/schedule";
 import type { StepDraft } from "@/types/forms";
 import { useAppDispatch } from "@store/hooks";
 import { renameHabitDay, updateHabit, type HabitChanges } from "@store/habitSlice";
@@ -55,6 +64,7 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
   const [steps, setSteps] = useState<StepDraft[]>(
     (habit.steps ?? []).map((step) => ({ _id: step._id, title: step.title })),
   );
+  const [schedule, setSchedule] = useState(draftOf(habit));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -83,8 +93,15 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
       ? `Must be ${DAY_TITLE_MAX} characters or fewer`
       : "";
 
+  const scheduleErrors = scheduleProblems(schedule);
+
   const invalid = Boolean(
-    titleProblem || descriptionProblem || sessionsProblem || dayTitleProblem || stepsProblem(steps),
+    titleProblem ||
+      descriptionProblem ||
+      sessionsProblem ||
+      dayTitleProblem ||
+      stepsProblem(steps) ||
+      Object.keys(scheduleErrors).length > 0,
   );
 
   // Blank rows are what "add step" leaves behind; they are not steps.
@@ -107,6 +124,17 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
   if (habit.sessions !== undefined && !sessionsProblem && parsedSessions !== habit.sessions) {
     changes.sessions = parsedSessions;
   }
+
+  // A new rhythm or goal starts a rule today; the server keeps the old one for
+  // the days that ran under it, so only a difference is worth sending.
+  const frequency = draftFrequency(schedule);
+  const target = draftTarget(schedule);
+  const newFrequency = !sameFrequency(frequency, habit.frequency);
+  const newTarget = !sameTarget(target, habit.target);
+  if (!invalid && newFrequency) changes.frequency = frequency;
+  if (!invalid && newTarget) changes.target = target ?? null;
+  if (schedule.timeOfDay !== habit.timeOfDay) changes.timeOfDay = schedule.timeOfDay;
+
   if (stepsChanged) {
     // An existing step travels with its id, so renaming it keeps its ticks.
     changes.steps = cleanedSteps.map(({ _id, title: stepTitle }) => (_id ? { _id, title: stepTitle } : { title: stepTitle }));
@@ -119,7 +147,8 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
   const shortens =
     changes.sessions !== undefined && habit.sessions !== undefined && changes.sessions < habit.sessions;
   const leavesPlanScore =
-    Boolean(habit.fromPlanId) && (changes.sessions !== undefined || renamesDay);
+    Boolean(habit.fromPlanId) &&
+    (changes.sessions !== undefined || renamesDay || newFrequency || newTarget);
 
   const dayLabel = format(fromDayKey(dayKeyOf(habit.day.date)), "EEEE, MMM d");
 
@@ -187,6 +216,20 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
 
       <StepsEditor steps={steps} onChange={setSteps} />
 
+      <ScheduleFields
+        value={schedule}
+        onChange={setSchedule}
+        problems={scheduleErrors}
+        type={habit.type}
+      />
+
+      {(newFrequency || newTarget) && (
+        <p className="alternative text-ink-muted">
+          A new rhythm or goal applies from today. Earlier days keep the rule
+          they ran under, so changing it never rewrites your history.
+        </p>
+      )}
+
       <CategoryPicker value={category} onChange={setCategory} />
       <EmojiPicker value={icon} onChange={setIcon} />
       <ColorPicker value={color} onChange={setColor} />
@@ -210,8 +253,8 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
 
       {leavesPlanScore && (
         <p className="alternative text-warning">
-          This habit came from the library. A different length or a rewritten
-          task makes it a different route, so it stops counting towards that
+          This habit came from the library. A different length, rhythm, goal or
+          a rewritten task makes it a different route, so it stops counting towards that
           plan’s score.
         </p>
       )}

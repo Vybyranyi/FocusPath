@@ -3,11 +3,20 @@ import type { Plan } from "@shared/index";
 import Button from "@components/ui/Button";
 import Input from "@components/ui/Input";
 import Modal from "@components/ui/Modal";
+import ScheduleFields from "@components/pickers/ScheduleFields";
 import WeekDatePicker from "@components/pickers/WeekDatePicker";
 import { useAppDispatch, useAppSelector } from "@store/hooks";
 import { takePlan } from "@store/plansSlice";
 import { useToast } from "@hooks/useToast";
 import { toDayKey } from "@/lib/dates";
+import {
+  draftFrequency,
+  draftOf,
+  draftTarget,
+  sameFrequency,
+  sameTarget,
+  scheduleProblems,
+} from "@/lib/schedule";
 
 export interface ITakePlanSheetProps {
   plan: Plan;
@@ -36,6 +45,7 @@ export default function TakePlanSheet({ plan, open, onOpenChange }: ITakePlanShe
 
   const [startDate, setStartDate] = useState<Date>(new Date());
   const [sessions, setSessions] = useState(String(plan.duration));
+  const [schedule, setSchedule] = useState(draftOf(plan));
 
   const parsedSessions = Number(sessions);
   const sessionsProblem =
@@ -43,10 +53,21 @@ export default function TakePlanSheet({ plan, open, onOpenChange }: ITakePlanShe
       ? "Must be a whole number of sessions, 1–365"
       : "";
 
+  const scheduleErrors = scheduleProblems(schedule);
+  const scheduleInvalid = Object.keys(scheduleErrors).length > 0;
+
+  // Only a difference from the plan is sent, and only a difference counts: the
+  // plan's own rhythm and goal are the route that was published.
+  const frequency = draftFrequency(schedule);
+  const target = draftTarget(schedule);
+  const changesFrequency = !scheduleInvalid && !sameFrequency(frequency, plan.frequency);
+  const changesTarget = !scheduleInvalid && !sameTarget(target, plan.target);
+
   const changesLength = !sessionsProblem && parsedSessions !== plan.duration;
+  const changesRoute = changesLength || changesFrequency || changesTarget;
 
   const handleTake = async () => {
-    if (sessionsProblem) return;
+    if (sessionsProblem || scheduleInvalid) return;
 
     try {
       await dispatch(
@@ -56,6 +77,8 @@ export default function TakePlanSheet({ plan, open, onOpenChange }: ITakePlanShe
           // previous day east of Greenwich. It travels as a day key instead.
           startDate: toDayKey(startDate),
           sessions: parsedSessions,
+          ...(changesFrequency ? { frequency } : {}),
+          ...(changesTarget ? { target: target ?? null } : {}),
         }),
       ).unwrap();
 
@@ -90,10 +113,18 @@ export default function TakePlanSheet({ plan, open, onOpenChange }: ITakePlanShe
         error={sessionsProblem}
       />
 
-      {changesLength && (
+      <ScheduleFields
+        value={schedule}
+        onChange={setSchedule}
+        problems={scheduleErrors}
+        type={plan.type}
+        showTimeOfDay={false}
+      />
+
+      {changesRoute && (
         <p className="alternative text-warning">
-          A different length means this is no longer the same route, so your
-          result will not count towards this plan’s score.
+          A different length, rhythm or goal means this is no longer the same
+          route, so your result will not count towards this plan’s score.
         </p>
       )}
 
@@ -115,7 +146,7 @@ export default function TakePlanSheet({ plan, open, onOpenChange }: ITakePlanShe
         <Button
           type="primary"
           size="medium"
-          disabled={taking || Boolean(sessionsProblem)}
+          disabled={taking || Boolean(sessionsProblem) || scheduleInvalid}
           onClick={handleTake}
         >
           {taking ? "Adding…" : "Add to my habits"}

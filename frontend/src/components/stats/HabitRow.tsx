@@ -1,6 +1,7 @@
 import { memo } from "react";
 import CircleLoader from "@components/habit/CircleLoader";
 import { habitCompletion } from "@/lib/habitProgress";
+import { streakLabel } from "@/lib/schedule";
 import { Emoji } from "react-apple-emojis";
 import type { Habit } from "@shared/index";
 
@@ -73,7 +74,7 @@ function HabitRow({ habit }: HabitRowProps) {
           {habit.currentStreak > 0 && (
             <p className="alternative text-ink-2 font-bold inline-flex items-center gap-1">
               <FlameIcon className="w-3.5 h-3.5 text-warning" />
-              {habit.currentStreak} streak
+              {streakLabel(habit.currentStreak, habit.streakUnit)} streak
             </p>
           )}
         </div>
