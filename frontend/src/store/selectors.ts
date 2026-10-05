@@ -1,7 +1,9 @@
 import { createSelector } from "@reduxjs/toolkit";
+import type { HabitSummary, TimeOfDay } from "@shared/index";
 import type { RootState } from "@store/store";
 import { getHabitProgress } from "@/lib/habitProgress";
 import { isOff, isSettled } from "@/lib/habitStatus";
+import { TIMES_OF_DAY } from "@/lib/schedule";
 
 export const selectAllHabits = (state: RootState) => state.habit.habits;
 export const selectHabitsForDate = (state: RootState) => state.habit.habitsForDate;
@@ -48,6 +50,25 @@ export const selectExploreIsEmpty = createSelector(
 /** Plans the author has withdrawn are kept, but counted apart from live ones. */
 export const selectPublishedPlanCount = createSelector([selectMyPlans], (plans) =>
     plans.filter((plan) => plan.status === "published").length,
+);
+
+export interface HabitGroup {
+    timeOfDay: TimeOfDay;
+    label: string;
+    habits: HabitSummary[];
+}
+
+/**
+ * The day's habits under Morning, Afternoon, Evening and Anytime, in that
+ * order. A part of the day nobody has a habit in is left out rather than shown
+ * empty, and a habit keeps its place within its group.
+ */
+export const selectHabitGroups = createSelector([selectHabitsForDate], (habits): HabitGroup[] =>
+    TIMES_OF_DAY.map(({ value, label }) => ({
+        timeOfDay: value,
+        label,
+        habits: habits.filter(habit => habit.timeOfDay === value),
+    })).filter(group => group.habits.length > 0),
 );
 
 export interface DailyProgress {

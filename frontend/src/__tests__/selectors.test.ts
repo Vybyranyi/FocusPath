@@ -3,6 +3,7 @@ import type { Habit, HabitSummary } from "@shared/index";
 import {
   selectBuildHabits,
   selectDailyProgress,
+  selectHabitGroups,
   selectQuitHabits,
 } from "@store/selectors";
 import type { RootState } from "@store/store";
@@ -123,5 +124,44 @@ describe("selectDailyProgress", () => {
     const state = stateWith({ habitsForDate: [day("a", true), day("b", true)] });
 
     expect(selectDailyProgress(state).percentage).toBe(100);
+  });
+});
+
+describe("selectHabitGroups", () => {
+  const at = (id: string, timeOfDay: HabitSummary["timeOfDay"]) => makeHabitSummary({ _id: id, timeOfDay });
+
+  it("orders the parts of the day from morning to anytime", () => {
+    const state = stateWith({
+      habitsForDate: [at("a", "anytime"), at("b", "evening"), at("c", "morning"), at("d", "afternoon")],
+    });
+
+    expect(selectHabitGroups(state).map(group => group.label)).toEqual([
+      "Morning",
+      "Afternoon",
+      "Evening",
+      "Anytime",
+    ]);
+  });
+
+  it("leaves out a part of the day with nothing in it", () => {
+    const state = stateWith({ habitsForDate: [at("a", "evening"), at("b", "morning")] });
+
+    expect(selectHabitGroups(state).map(group => group.timeOfDay)).toEqual(["morning", "evening"]);
+  });
+
+  it("keeps habits in their order within a group", () => {
+    const state = stateWith({ habitsForDate: [at("a", "morning"), at("b", "evening"), at("c", "morning")] });
+
+    expect(selectHabitGroups(state)[0].habits.map(habit => habit._id)).toEqual(["a", "c"]);
+  });
+
+  it("has no groups for a day with no habits", () => {
+    expect(selectHabitGroups(stateWith({}))).toEqual([]);
+  });
+
+  it("returns the same groups while the habits have not changed", () => {
+    const state = stateWith({ habitsForDate: [at("a", "morning")] });
+
+    expect(selectHabitGroups(state)).toBe(selectHabitGroups(state));
   });
 });

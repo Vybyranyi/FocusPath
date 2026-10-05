@@ -6,6 +6,7 @@ import {
   type Transition,
 } from "framer-motion";
 import { useAppDispatch, useAppSelector } from "@store/hooks";
+import { selectHabitGroups } from "@store/selectors";
 import { getHabitsForDate } from "@store/habitSlice";
 import { nextWeek, prevWeek } from "@store/calendarSlice";
 import { useSwipeable } from "react-swipeable";
@@ -33,6 +34,7 @@ export default function Main() {
   const navigate = useNavigate();
   const { habitsForDate, loading, error } = useAppSelector((s) => s.habit);
   const { currentWeekStart } = useAppSelector((s) => s.calendar);
+  const groups = useAppSelector(selectHabitGroups);
 
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [direction, setDirection] = useState(0);
@@ -140,11 +142,18 @@ export default function Main() {
         className="flex flex-col gap-3"
       >
         <ProgressBanner />
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:gap-x-6">
-          {habitsForDate.map((habit) => (
-            <HabitCard key={habit._id} habit={habit} />
-          ))}
-        </div>
+        {groups.map((group) => (
+          <section key={group.timeOfDay} aria-label={group.label} className="flex flex-col gap-3">
+            {/* A heading only when there is something to tell apart: a lone
+                "Anytime" over every habit of the day is noise. */}
+            {groups.length > 1 && <h2 className="field-label text-ink-2">{group.label}</h2>}
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:gap-x-6">
+              {group.habits.map((habit) => (
+                <HabitCard key={habit._id} habit={habit} />
+              ))}
+            </div>
+          </section>
+        ))}
       </motion.div>
     );
   };
