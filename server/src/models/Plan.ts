@@ -1,5 +1,6 @@
 import mongoose, { Document, Schema } from 'mongoose';
-import type { Plan, PlanCategory, PlanStatus } from '@shared/index';
+import type { Frequency, Plan, PlanCategory, PlanStatus, Target, TimeOfDay } from '@shared/index';
+import { FrequencySchema, TargetSchema, TIMES_OF_DAY } from '@models/Habit';
 
 /**
  * The runtime half of `PlanCategory`.
@@ -36,8 +37,12 @@ export const MIN_CLONES_FOR_RATE = 10;
  */
 export interface IPlan
     extends Document,
-    Omit<Plan, '_id' | 'author' | 'provenAt' | 'days' | 'daysTruncated' | 'completionRate' | 'createdAt' | 'updatedAt'> {
+    Omit<Plan, '_id' | 'author' | 'provenAt' | 'days' | 'daysTruncated' | 'completionRate' | 'frequency' | 'target' | 'timeOfDay' | 'createdAt' | 'updatedAt'> {
+    /** The tasks of the plan, one per session. The name predates frequencies. */
     days: Array<{ dayTitle: string }>;
+    frequency: Frequency;
+    target?: Target;
+    timeOfDay: TimeOfDay;
     author: {
         userId: mongoose.Types.ObjectId;
         displayName?: string;
@@ -48,7 +53,7 @@ export interface IPlan
      * and check that the schedule still matches what was published.
      */
     sourceHabitId: mongoose.Types.ObjectId;
-    /** `scheduleHash` of the content as published. See `services/planContent.ts`. */
+    /** `contentHash` of the content as published. See `services/planContent.ts`. */
     contentHash: string;
     provenAt?: Date;
     completedCloneCount: number;
@@ -71,7 +76,14 @@ const PlanSchema: Schema = new Schema({
     // holds five hundred untagged plans and the only way back is to guess.
     language: { type: String, required: true, lowercase: true, trim: true },
     type: { type: String, enum: ['build', 'quit'], required: true },
+    // Equals `days.length`, kept so the library's listing and filters did not
+    // have to change when a day became a session.
     duration: { type: Number, required: true, min: 1, max: 365 },
+    // How the plan is walked. Plans from before frequencies existed have none
+    // stored, which the migration fills in — and the default covers until it has.
+    frequency: { type: FrequencySchema, default: () => ({ kind: 'daily' }) },
+    target: { type: TargetSchema },
+    timeOfDay: { type: String, enum: TIMES_OF_DAY, default: 'anytime' },
     color: { type: String, required: true },
     icon: { type: String, required: true },
     days: [{

@@ -30,7 +30,7 @@ const createHabit = async (client: Client, overrides: Record<string, unknown> = 
         .send({
             title: 'Read daily',
             startDate: dayKey(0),
-            duration: 2,
+            sessions: 2,
             type: 'build',
             color: 'blue',
             icon: 'books',
@@ -63,11 +63,18 @@ const takePlan = async (
     return response.body.data.habit;
 };
 
-/** Marks every day of a habit, in schedule order. */
-const markAll = async (client: Client, habit: { _id: string; dailyCompletions: Array<{ date: string }> }, status: string) => {
-    for (const day of habit.dailyCompletions) {
+/** The day key `offset` days after a habit's start. */
+const dayOfHabit = (habit: { startDate: string }, offset: number) => {
+    const date = new Date(habit.startDate);
+    date.setUTCDate(date.getUTCDate() + offset);
+    return date.toISOString().slice(0, 10);
+};
+
+/** Marks every session of a daily programme, in order. */
+const markAll = async (client: Client, habit: { _id: string; startDate: string; sessions: number }, status: string) => {
+    for (let offset = 0; offset < habit.sessions; offset++) {
         await write(client, 'patch', `/habits/${habit._id}/complete`)
-            .send({ date: day.date.slice(0, 10), status })
+            .send({ date: dayOfHabit(habit, offset), status })
             .expect(200);
     }
 };
@@ -101,11 +108,15 @@ describe('Taking a plan', () => {
         const habit = await takePlan(taker, plan._id);
 
         expect(habit.title).toBe('Read daily');
-        expect(habit.duration).toBe(2);
-        expect(habit.dailyCompletions).toHaveLength(2);
-        expect(habit.dailyCompletions[0].dayTitle).toBe(plan.days[0].dayTitle);
+        expect(habit.sessions).toBe(2);
         expect(habit.fromPlanId).toBe(plan._id);
-        expect(habit.dailyCompletions.every((day: { status: string }) => day.status === 'pending')).toBe(true);
+        expect(habit.progress.done).toBe(0);
+
+        const day = await taker.agent.get(`/habits/daily?date=${dayKey(0)}`).expect(200);
+        expect(day.body.data.habits[0].day).toMatchObject({
+            state: 'pending',
+            session: { index: 1, total: 2, title: plan.days[0].dayTitle },
+        });
     });
 
     it('starts on the day the taker asked for', async () => {
@@ -189,7 +200,7 @@ describe('Clone statistics', () => {
         expect((await counters(plan._id)).completed).toBe(1);
 
         await write(taker, 'patch', `/habits/${habit._id}/complete`)
-            .send({ date: habit.dailyCompletions[0].date.slice(0, 10), status: 'pending' })
+            .send({ date: dayOfHabit(habit, 0), status: 'pending' })
             .expect(200);
 
         expect((await counters(plan._id)).completed).toBe(0);
@@ -197,7 +208,7 @@ describe('Clone statistics', () => {
 
     it('excludes a clone whose length was changed', async () => {
         const { plan } = await publishPlan(author);
-        const habit = await takePlan(taker, plan._id, { duration: 1 });
+        const habit = await takePlan(taker, plan._id, { sessions: 1 });
 
         await markAll(taker, habit, 'done');
 
@@ -214,7 +225,7 @@ describe('Clone statistics', () => {
         expect((await counters(plan._id)).completed).toBe(1);
 
         await write(taker, 'patch', `/habits/${habit._id}/day`)
-            .send({ date: habit.dailyCompletions[0].date.slice(0, 10), dayTitle: 'My own idea' })
+            .send({ session: 1, title: 'My own idea' })
             .expect(200);
 
         expect((await counters(plan._id)).completed).toBe(0);
@@ -266,7 +277,7 @@ describe('The proven badge', () => {
         const { habit, plan } = await publishPlan(author);
 
         await write(author, 'patch', `/habits/${habit._id}/day`)
-            .send({ date: dayKey(0), dayTitle: 'Rewritten after publishing' })
+            .send({ session: 1, title: 'Rewritten after publishing' })
             .expect(200);
 
         const moved = await backdate(author, habit._id, -5);
@@ -278,21 +289,21 @@ describe('The proven badge', () => {
     it('is also checked when the author opens their own page', async () => {
         // The first trigger never fires for someone who walked away and marked
         // nothing since; opening the cabinet is the next moment anyone looks.
-        const { habit, plan } = await publishPlan(author, { duration: 3 });
+        const { habit, plan } = await publishPlan(author, { sessions: 3 });
 
         const moved = await backdate(author, habit._id, -10);
-        for (const day of moved.dailyCompletions.slice(0, 2)) {
+        for (const offset of [0, 1]) {
             await write(author, 'patch', `/habits/${habit._id}/complete`)
-                .send({ date: day.date.slice(0, 10), status: 'done' })
+                .send({ date: dayOfHabit(moved, offset), status: 'done' })
                 .expect(200);
         }
 
-        // Two of three days is 67%, below the threshold.
+        // Two of three sessions is 67%, below the threshold.
         expect((await counters(plan._id)).proven).toBe(false);
 
         await Plan.updateOne({ _id: plan._id }, { $set: { proven: false } });
         await write(author, 'patch', `/habits/${habit._id}/complete`)
-            .send({ date: moved.dailyCompletions[2].date.slice(0, 10), status: 'done' })
+            .send({ date: dayOfHabit(moved, 2), status: 'done' })
             .expect(200);
         await Plan.updateOne({ _id: plan._id }, { $set: { proven: false, provenAt: undefined } });
 

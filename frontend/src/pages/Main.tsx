@@ -6,14 +6,18 @@ import {
   type Transition,
 } from "framer-motion";
 import { useAppDispatch, useAppSelector } from "@store/hooks";
+import { selectHabitGroups } from "@store/selectors";
 import { getHabitsForDate } from "@store/habitSlice";
+import { loadCoach } from "@store/coachSlice";
 import { nextWeek, prevWeek } from "@store/calendarSlice";
 import { useSwipeable } from "react-swipeable";
 import { useNavigate } from "react-router";
 import HabitCard      from "@components/habit/HabitCard";
 import DatePicker     from "@components/pickers/DatePicker";
 import ProgressBanner from "@components/habit/ProgressBanner";
-import { toDayKey }   from "@/lib/dates";
+import CoachBanner from "@components/coach/CoachBanner";
+import JournalCard from "@components/journal/JournalCard";
+import { todayKey, toDayKey } from "@/lib/dates";
 import Button        from "@components/ui/Button";
 import { HabitCardSkeleton } from "@components/ui/Skeleton";
 
@@ -33,6 +37,8 @@ export default function Main() {
   const navigate = useNavigate();
   const { habitsForDate, loading, error } = useAppSelector((s) => s.habit);
   const { currentWeekStart } = useAppSelector((s) => s.calendar);
+  const groups = useAppSelector(selectHabitGroups);
+  const { entry, entryDay } = useAppSelector((s) => s.journal);
 
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [direction, setDirection] = useState(0);
@@ -76,6 +82,13 @@ export default function Main() {
   useEffect(() => {
     dispatch(getHabitsForDate(selectedKey));
   }, [dispatch, selectedKey]);
+
+  // Opening the day is the moment the coach looks at the calendar: whatever has
+  // come due is said, and nothing else. Once per visit, not per day browsed —
+  // a week's review does not change as the strip is tapped.
+  useEffect(() => {
+    dispatch(loadCoach());
+  }, [dispatch]);
 
   const renderContent = () => {
     if (loading) {
@@ -140,11 +153,18 @@ export default function Main() {
         className="flex flex-col gap-3"
       >
         <ProgressBanner />
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:gap-x-6">
-          {habitsForDate.map((habit) => (
-            <HabitCard key={habit._id} habit={habit} />
-          ))}
-        </div>
+        {groups.map((group) => (
+          <section key={group.timeOfDay} aria-label={group.label} className="flex flex-col gap-3">
+            {/* A heading only when there is something to tell apart: a lone
+                "Anytime" over every habit of the day is noise. */}
+            {groups.length > 1 && <h2 className="field-label text-ink-2">{group.label}</h2>}
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 lg:gap-x-6">
+              {group.habits.map((habit) => (
+                <HabitCard key={habit._id} habit={habit} />
+              ))}
+            </div>
+          </section>
+        ))}
       </motion.div>
     );
   };
@@ -176,9 +196,19 @@ export default function Main() {
           </AnimatePresence>
         </div>
 
+        <CoachBanner day={selectedKey} />
+
         <AnimatePresence mode="wait" custom={direction}>
           {renderContent()}
         </AnimatePresence>
+
+        {/* The day's own entry, below its habits. Shown for a day that has
+            begun — there is nothing to say about tomorrow — and only once the
+            answer for *this* day is in, so an entry from the day before is
+            never shown, and cannot be saved, against this one. */}
+        {selectedKey <= todayKey() && entryDay === selectedKey && (
+          <JournalCard key={selectedKey} day={selectedKey} entry={entry} />
+        )}
       </div>
     </div>
   );

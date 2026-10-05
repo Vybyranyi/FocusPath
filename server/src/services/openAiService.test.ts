@@ -51,6 +51,50 @@ describe('generateHabitPlan', () => {
         expect(promptAt()).not.toMatch(/described this habit/i);
     });
 
+    describe('the schedule', () => {
+        it('plans per session and says nothing of days it knows nothing about', async () => {
+            create.mockResolvedValue(reply(planOf(3)));
+
+            await generateHabitPlan('Run', 'build', 3);
+
+            expect(promptAt()).toContain('EXACTLY 3 session tasks');
+            expect(promptAt()).not.toMatch(/does one session/i);
+        });
+
+        it.each([
+            [{ kind: 'daily' as const }, 'every day'],
+            [{ kind: 'weekly' as const, times: 3 }, '3 times a week'],
+            [{ kind: 'weekly' as const, times: 1 }, '1 time a week'],
+            [{ kind: 'weekdays' as const, days: [1, 3, 5] }, 'on Monday, Wednesday, Friday only'],
+        ])('tells the model the rhythm (%j)', async (frequency, wording) => {
+            create.mockResolvedValue(reply(planOf(3)));
+
+            await generateHabitPlan('Run', 'build', 3, undefined, { frequency });
+
+            expect(promptAt()).toContain(wording);
+        });
+
+        it('tells the model the goal of each session', async () => {
+            create.mockResolvedValue(reply(planOf(3)));
+
+            await generateHabitPlan('Run', 'build', 3, undefined, {
+                frequency: { kind: 'daily' },
+                target: { value: 5, unit: 'km' },
+            });
+
+            expect(promptAt()).toContain('goal of 5 km');
+        });
+
+        it('keeps the schedule across a retry', async () => {
+            create.mockResolvedValueOnce({ choices: [{ message: { content: 'not json' } }] });
+            create.mockResolvedValueOnce(reply(planOf(3)));
+
+            await generateHabitPlan('Run', 'build', 3, undefined, { frequency: { kind: 'weekly', times: 2 } });
+
+            expect(promptAt(1)).toContain('2 times a week');
+        });
+    });
+
     it('ignores a description that is only whitespace', async () => {
         create.mockResolvedValue(reply(planOf(3)));
 

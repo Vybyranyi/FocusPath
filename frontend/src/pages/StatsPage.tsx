@@ -1,6 +1,9 @@
 import HabitGroup from "@components/stats/HabitGroup";
+import CoachHistory from "@components/coach/CoachHistory";
+import JournalHistory from "@components/journal/JournalHistory";
 import StatsSummary from "@components/stats/StatsSummary";
 import { getAllHabits } from "@store/habitSlice";
+import { loadCoach } from "@store/coachSlice";
 import { useAppDispatch, useAppSelector } from "@store/hooks";
 import {
   selectAllHabits,
@@ -25,6 +28,7 @@ export default function StatsPage() {
 
   useEffect(() => {
     dispatch(getAllHabits());
+    dispatch(loadCoach());
   }, [dispatch]);
 
   return (
@@ -69,6 +73,11 @@ export default function StatsPage() {
             </div>
           </>
         )}
+
+        {/* Outside the habit branches: the journal is the person's, not a habit's,
+            and is worth reading with no habit at all. */}
+        <CoachHistory />
+        <JournalHistory />
       </div>
     </div>
   );

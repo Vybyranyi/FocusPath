@@ -1,7 +1,6 @@
 import { memo } from "react";
 import StatCard from "./StatCard";
 import { getHabitProgress } from "@/lib/habitProgress";
-import { isDone } from "@/lib/habitStatus";
 import type { Habit } from "@shared/index";
 
 interface StatsSummaryProps {
@@ -13,12 +12,12 @@ function StatsSummary({ habits }: StatsSummaryProps) {
   const completedCount = habits.filter((h) => h.isCompleted).length;
   const bestStreak = habits.reduce((max, h) => Math.max(max, h.currentStreak), 0);
 
-  const totalDays = habits.reduce((sum, h) => sum + h.dailyCompletions.length, 0);
-  const doneDays = habits.reduce(
-    (sum, h) => sum + h.dailyCompletions.filter(isDone).length,
-    0,
-  );
-  const overallRate = getHabitProgress(doneDays, totalDays);
+  // Over what is already decided, as each habit's own percentage is: the days
+  // still to come would otherwise drag the rate down on every programme in
+  // progress.
+  const decided = habits.reduce((sum, h) => sum + h.progress.decided, 0);
+  const done = habits.reduce((sum, h) => sum + h.progress.done, 0);
+  const overallRate = getHabitProgress(done, decided);
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">

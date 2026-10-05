@@ -1,4 +1,4 @@
-import type { HabitType } from "./habit";
+import type { Frequency, HabitType, Target, TimeOfDay } from "./habit";
 
 /**
  * The fixed set of things a plan can be about.
@@ -40,7 +40,7 @@ export type PlanSection = "official" | "proven" | "new";
 /** Why someone reported a plan. */
 export type ReportReason = "dangerous" | "spam" | "offensive" | "nonsense" | "other";
 
-/** One day of a published plan. Unlike a habit's day it carries no date and no status. */
+/** One session of a published plan. Unlike a habit's day it carries no date and no status. */
 export interface PlanDay {
     dayTitle: string;
 }
@@ -64,7 +64,12 @@ export interface Plan {
     /** ISO 639-1, detected when the plan was published. */
     language: string;
     type: HabitType;
+    /** Number of sessions, equal to `days.length`. */
     duration: number;
+    /** How often the plan is walked. Plans from before frequencies ran daily. */
+    frequency: Frequency;
+    target?: Target;
+    timeOfDay: TimeOfDay;
     color: string;
     icon: string;
     /**

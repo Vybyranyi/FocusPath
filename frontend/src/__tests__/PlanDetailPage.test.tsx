@@ -60,7 +60,8 @@ describe("PlanDetailPage", () => {
       show(teaser(), null);
 
       expect(await screen.findByText("Read every day")).toBeInTheDocument();
-      expect(screen.getByText("30 days")).toBeInTheDocument();
+      expect(screen.getByText("30 sessions")).toBeInTheDocument();
+      expect(screen.getByText("Every day")).toBeInTheDocument();
       expect(screen.getByText("Learning")).toBeInTheDocument();
     });
 
@@ -69,7 +70,7 @@ describe("PlanDetailPage", () => {
 
       expect(await screen.findByText("Day 1 task")).toBeInTheDocument();
       expect(screen.queryByText("Day 4 task")).not.toBeInTheDocument();
-      expect(screen.getByText(/27 more days are written/)).toBeInTheDocument();
+      expect(screen.getByText(/27 more sessions are written/)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /Create an account/ })).toBeInTheDocument();
     });
 
@@ -89,7 +90,7 @@ describe("PlanDetailPage", () => {
       expect(await screen.findByText("Day 1 task")).toBeInTheDocument();
       // Every day, so nobody takes on ninety days blind and quits on day five.
       expect(screen.getByText("Day 30 task")).toBeInTheDocument();
-      expect(screen.queryByText(/more days are written/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/more sessions are written/)).not.toBeInTheDocument();
     });
 
     it("can take it and can report it", async () => {

@@ -1,6 +1,9 @@
 import Habit, { type IHabit } from '@models/Habit';
+import HabitDay from '@models/HabitDay';
 import Plan from '@models/Plan';
-import { qualifiesAsProven, scheduleHash } from '@services/planContent';
+import { evaluate, rulesOf, type LoggedDay } from '@services/habitView';
+import { toDayNumber, fromDayNumber } from '@services/habitTimeline';
+import { contentHash, qualifiesAsProven } from '@services/planContent';
 
 /**
  * The counters and the badge — the two places where a habit's progress is
@@ -11,8 +14,29 @@ import { qualifiesAsProven, scheduleHash } from '@services/planContent';
  * either one would close the loop into a circular import.
  */
 
-export const scheduleHashOfHabit = (habit: IHabit): string =>
-    scheduleHash(habit.duration, habit.dailyCompletions.map(day => day.dayTitle));
+/**
+ * The hash of the route this habit runs now: the rule in force and the
+ * programme. A rhythm changed half way is a deviation from the route the plan
+ * describes, and the clone stops matching — which is the whole point, and
+ * exactly how a changed length has always been treated.
+ *
+ * It is the *last* rule, not the first. With the first, a clone that started on
+ * the plan's rhythm and then switched to an easier one would still match, and
+ * an author could publish, relax their own rhythm and still earn the badge for
+ * the route they no longer walk.
+ *
+ * A habit with no end has no programme to hash and can never match a plan.
+ */
+export const scheduleHashOfHabit = (habit: IHabit): string => {
+    if (!habit.program) return '';
+
+    const rules = rulesOf(habit);
+    const current = rules[rules.length - 1];
+    return contentHash(
+        { frequency: current.frequency, target: current.target },
+        habit.program.map(session => session.title),
+    );
+};
 
 /**
  * Whether this habit is the clone of its plan that the statistics follow.
@@ -56,14 +80,38 @@ export const registerClone = async (habit: IHabit): Promise<void> => {
 
 /** What a clone was worth to its plan's statistics before the caller touched it. */
 export interface CloneSnapshot {
-    isCompleted: boolean;
+    /** Every session of the programme is done — not merely behind. */
+    finished: boolean;
     hash: string;
 }
 
-export const snapshotClone = (habit: IHabit): CloneSnapshot => ({
-    isCompleted: habit.isCompleted,
-    hash: scheduleHashOfHabit(habit),
-});
+/**
+ * A habit that is "complete" in the app's own terms has every session behind
+ * it, done or not. A plan's completion rate means something stricter: that
+ * people walked the plan to its end. Counting a clone that was abandoned on day
+ * two and merely outlived its calendar would put a rate on the library that
+ * measures nothing, so the statistics count only a programme done in full.
+ *
+ * Async because it reads the log; a habit that came from no plan has nothing to
+ * snapshot and costs no query.
+ */
+export const snapshotClone = async (habit: IHabit, now: Date = new Date()): Promise<CloneSnapshot> => {
+    if (!habit.fromPlanId) {
+        return { finished: false, hash: '' };
+    }
+
+    const logs = await HabitDay.find({ userId: habit.userId, habitId: habit._id })
+        .lean<LoggedDay[]>();
+    const { timeline } = evaluate(habit, logs, toDayNumber(now));
+
+    return {
+        finished:
+            timeline.completed &&
+            timeline.sessionsTotal !== undefined &&
+            timeline.doneSlots >= timeline.sessionsTotal,
+        hash: scheduleHashOfHabit(habit),
+    };
+};
 
 /**
  * Moves a plan's completed-clone counter by the difference this change made.
@@ -80,8 +128,8 @@ export const syncCloneStats = async (habit: IHabit, before: CloneSnapshot): Prom
         return;
     }
 
-    const after = snapshotClone(habit);
-    if (before.isCompleted === after.isCompleted && before.hash === after.hash) {
+    const after = await snapshotClone(habit);
+    if (before.finished === after.finished && before.hash === after.hash) {
         return;
     }
 
@@ -93,7 +141,7 @@ export const syncCloneStats = async (habit: IHabit, before: CloneSnapshot): Prom
     // Finished *and* still running the schedule that was published. A clone
     // whose days or length were changed is not evidence about this plan.
     const counts = (snapshot: CloneSnapshot) =>
-        snapshot.isCompleted && snapshot.hash === plan.contentHash;
+        snapshot.finished && snapshot.hash === plan.contentHash;
 
     const delta = Number(counts(after)) - Number(counts(before));
     if (delta === 0 || !(await isCountedClone(habit))) {
@@ -112,7 +160,7 @@ export const syncCloneStats = async (habit: IHabit, before: CloneSnapshot): Prom
  * every user's own timezone and would be wrong until it did.
  */
 export const matureProvenBadge = async (habit: IHabit, now: Date = new Date()): Promise<void> => {
-    if (!habit.publishedPlanId) {
+    if (!habit.publishedPlanId || !habit.program) {
         return;
     }
 
@@ -121,13 +169,15 @@ export const matureProvenBadge = async (habit: IHabit, now: Date = new Date()): 
         return;
     }
 
-    const doneCount = habit.dailyCompletions.filter(day => day.status === 'done').length;
+    const logs = await HabitDay.find({ userId: habit.userId, habitId: habit._id })
+        .lean<LoggedDay[]>();
+    const { timeline } = evaluate(habit, logs, toDayNumber(now));
 
     const earned = qualifiesAsProven(
         {
-            startDate: habit.startDate,
-            duration: habit.duration,
-            doneCount,
+            endDate: timeline.endDay === undefined ? undefined : fromDayNumber(timeline.endDay),
+            sessions: habit.program.length,
+            doneCount: timeline.doneSlots,
             habitHash: scheduleHashOfHabit(habit),
             planHash: plan.contentHash,
         },

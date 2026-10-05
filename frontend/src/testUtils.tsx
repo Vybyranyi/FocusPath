@@ -4,7 +4,7 @@ import { Provider } from "react-redux";
 import { MemoryRouter } from "react-router";
 import { makeStore, type RootState } from "@store/store";
 import { ToastProvider } from "@components/ui/Toast";
-import type { HabitSummary, Plan, PlanSummary } from "@shared/index";
+import type { CoachCard, HabitSummary, Plan, PlanSummary } from "@shared/index";
 
 interface RenderWithProvidersOptions extends Omit<RenderOptions, "wrapper"> {
   /** Slice state to start from. Anything omitted falls back to the slice's own initial state. */
@@ -56,18 +56,27 @@ export const makeHabitSummary = (
   type: "build",
   color: "blue",
   icon: "books",
+  timeOfDay: "anytime",
+  rules: [
+    { effectiveFrom: "2025-01-06T00:00:00.000Z", frequency: { kind: "daily" } },
+  ],
+  frequency: { kind: "daily" },
+  sessions: 7,
+  pauses: [],
+  restDays: [],
   currentStreak: 0,
+  streakUnit: "day",
   isCompleted: false,
-  duration: 7,
-  completedCount: 0,
-  dayInfo: {
-    _id: "day-1",
-    dayTitle: "Read 10 pages",
-    completedSteps: [],
+  progress: { done: 0, decided: 0, percentage: 0, sessionsTotal: 7 },
+  createdAt: "2025-01-06T00:00:00.000Z",
+  updatedAt: "2025-01-06T00:00:00.000Z",
+  day: {
     // A string, as it arrives over JSON — the old fixture used a Date, which
     // no response has ever actually contained.
     date: "2025-01-06T00:00:00.000Z",
-    status: "pending",
+    state: "pending",
+    completedSteps: [],
+    session: { index: 1, total: 7, title: "Read 10 pages" },
   },
   ...overrides,
 });
@@ -83,6 +92,8 @@ export const makePlanSummary = (
   language: "en",
   type: "build",
   duration: 30,
+  frequency: { kind: "daily" },
+  timeOfDay: "anytime",
   color: "blue",
   icon: "books",
   author: {},
@@ -140,3 +151,38 @@ export const habitState = (
     ...overrides,
   },
 });
+
+/** A coach card, by default a review that has been written. */
+export const makeCoachCard = (overrides: Partial<CoachCard> = {}): CoachCard => ({
+  _id: "card-1",
+  kind: "weekly_review",
+  key: "2026-03-09",
+  status: "ready",
+  facts: {
+    weekStart: "2026-03-09",
+    habits: [{ title: "Read", type: "build", slots: 7, done: 5, percentage: 71, streak: 3, streakUnit: "day" }],
+    reasons: {},
+  },
+  content: { title: "A better week", body: "You read on five days.", win: "A streak of three.", tip: "Start Monday with it." },
+  language: "en",
+  createdAt: new Date().toISOString(),
+  ...overrides,
+});
+
+/** An offer to ease a habit, not yet opened. */
+export const makeOffer = (overrides: Partial<CoachCard> = {}): CoachCard =>
+  makeCoachCard({
+    _id: "offer-1",
+    kind: "recalibration",
+    key: "habit-1:2026-03-16",
+    habitId: "habit-1",
+    status: "candidate",
+    content: undefined,
+    facts: {},
+    proposal: {
+      habitTitle: "Read",
+      from: { frequency: { kind: "daily" } },
+      to: { frequency: { kind: "weekly", times: 5 } },
+    },
+    ...overrides,
+  });

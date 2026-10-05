@@ -1,16 +1,21 @@
 import CircleLoader from '@components/habit/CircleLoader';
 import { useSwipeable } from 'react-swipeable';
-import { useState, useRef, useCallback, memo } from 'react';
-import type { DayStatus, HabitSummary } from '@shared/index';
-import { markHabitCompletion } from '@store/habitSlice';
-import { useAppDispatch } from '@store/hooks';
+import { useState, useRef, useCallback, useEffect, memo } from 'react';
+import type { DayStatus, HabitDay, HabitSummary } from '@shared/index';
+import { markHabitCompletion, setHabitValue } from '@store/habitSlice';
+import { useAppDispatch, useAppSelector } from '@store/hooks';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { dayKeyOf, dayNumberOf, todayKey } from '@/lib/dates';
-import { dayState, type DayState } from '@/lib/habitStatus';
-import { getHabitProgress } from '@/lib/habitProgress';
+import { dayKeyOf, todayKey } from '@/lib/dates';
+import { isDone, isOff, isWeekMet, type DayState } from '@/lib/habitStatus';
+import { habitCompletion } from '@/lib/habitProgress';
+import CounterControl from '@components/habit/CounterControl';
 import HabitDetailPopup from '@components/habit/HabitDetailPopup';
+import ReasonSheet from '@components/habit/ReasonSheet';
 import { cn } from '@/lib/utils';
 import { useToast } from '@hooks/useToast';
+
+/** How long taps on a counter are gathered before they are sent as one. */
+const COUNT_DEBOUNCE_MS = 400;
 
 interface IHabitCardProps {
   habit: HabitSummary;
@@ -50,6 +55,10 @@ const STATE_STYLE: Record<DayState, { ring: string; badge: string; Icon: typeof 
   done:    { ring: 'ring-success', badge: 'bg-success-soft text-success', Icon: CheckIcon, word: 'Done' },
   failed:  { ring: 'ring-danger',  badge: 'bg-danger-soft text-danger',   Icon: CrossIcon, word: 'Not done' },
   missed:  { ring: 'ring-missed',  badge: 'bg-missed-soft text-missed',   Icon: ClockIcon, word: 'Missed' },
+  // Days the habit is deliberately not asked for. Neutral on purpose: neither
+  // a success nor a slip, and they must not read as either.
+  paused:  { ring: 'ring-line',    badge: 'bg-canvas text-ink-muted',     Icon: ClockIcon, word: 'Paused' },
+  rest:    { ring: 'ring-line',    badge: 'bg-canvas text-ink-muted',     Icon: ClockIcon, word: 'Rest day' },
   pending: null,
 };
 
@@ -61,48 +70,118 @@ function HabitCard({ habit }: IHabitCardProps) {
   const reduceMotion = useReducedMotion();
   const { notify } = useToast();
 
-  // Compared as day keys. `dayInfo.date` is midnight UTC, and reading it with
+  // Compared as day keys. `day.date` is midnight UTC, and reading it with
   // local getters put it on the previous day west of Greenwich — which showed
   // every unmarked habit as a failure a day early.
   const today    = todayKey();
-  const habitDay = dayKeyOf(habit.dayInfo.date);
+  const habitDay = dayKeyOf(habit.day.date);
   const isFuture = habitDay > today;
 
-  // Read straight from the store. This used to be local state kept in step by
-  // an effect, because the server could not represent "the user marked today
-  // failed" — so that verdict lived only in this component and died on the next
-  // refetch. The status enum holds it, and the copy here is gone with it.
-  const state = dayState(habit.dayInfo, today);
+  // The server says what the day is worth, `missed` included: it is derived
+  // from the date there, in one place, and this component no longer repeats the
+  // rule. It reads the state straight from the store — it used to be local
+  // state kept in step by an effect, which died on the next refetch.
+  const state = habit.day.state;
   const style = STATE_STYLE[state];
+  const off = isOff(habit.day);
 
-  const progress = getHabitProgress(habit.completedCount, habit.duration);
+  // A weekly habit whose week is met has nothing more to ask today, and one
+  // that has a goal is counted instead of ticked.
+  const weekMet = isWeekMet(habit.day) && !isDone(habit.day);
+  const target = habit.day.target;
+  const week = habit.day.week;
+
+  const progress = habitCompletion(habit.progress);
+
+  // Said out loud. A refused mark used to change nothing and say nothing: the
+  // card simply stayed as it was, which reads as a swipe that did not register,
+  // and the user tries again into the same failure.
+  const reportRefusal = useCallback((reason: unknown) => {
+    notify(
+      `Could not save “${habit.title}” — ${typeof reason === 'string' ? reason : 'try again'}`,
+      'danger',
+    );
+  }, [habit.title, notify]);
+
+  // "Why not?", asked once: right after a day is failed, unless the person has
+  // said they would rather not be asked, or it was already asked for this day.
+  const asksWhy = useAppSelector((state) => state.auth.user?.preferences?.askFailureReason !== false);
+  const [askingWhy, setAskingWhy] = useState(false);
+  const askWhyIfFailed = useCallback((day: HabitDay) => {
+    if (asksWhy && day.state === 'failed' && !day.reasonPrompted) setAskingWhy(true);
+  }, [asksWhy]);
 
   const handleMark = useCallback((status: DayStatus) => {
     dispatch(markHabitCompletion({
       habitId: habit._id,
-      date: habit.dayInfo.date,
+      date: habit.day.date,
       status,
     }))
       .unwrap()
-      // Said out loud. A refused mark used to change nothing and say nothing:
-      // the card simply stayed as it was, which reads as a swipe that did not
-      // register, and the user tries again into the same failure.
-      .catch((reason: unknown) => {
-        notify(
-          `Could not save “${habit.title}” — ${typeof reason === 'string' ? reason : 'try again'}`,
-          'danger',
-        );
+      .then(({ day }) => askWhyIfFailed(day))
+      .catch(reportRefusal);
+  }, [dispatch, habit._id, habit.day.date, reportRefusal, askWhyIfFailed]);
+
+  /**
+   * Counting is tapped quickly — three glasses in as many seconds — and every
+   * tap computes from the number on screen. Sent one by one, the second tap
+   * went out before the first had answered and carried the same value, so two
+   * glasses were saved as one. The tapped number is shown at once and the taps
+   * are sent as a single request once they stop; a refusal puts the server's
+   * number back.
+   */
+  const [counted, setCounted] = useState<number | null>(null);
+  const latestCount = useRef<number | null>(null);
+  const countTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  const sendCount = useCallback((value: number) => {
+    dispatch(setHabitValue({ habitId: habit._id, date: habit.day.date, value }))
+      .unwrap()
+      // A limit passed is a failed day too, and is asked about the same way.
+      .then(({ day }) => askWhyIfFailed(day))
+      .catch(reportRefusal)
+      .finally(() => {
+        // Only if no later tap has taken over the number on screen.
+        if (latestCount.current === value) {
+          latestCount.current = null;
+          setCounted(null);
+        }
       });
-  }, [dispatch, habit._id, habit.dayInfo.date, habit.title, notify]);
+  }, [dispatch, habit._id, habit.day.date, reportRefusal, askWhyIfFailed]);
+
+  const sendCountRef = useRef(sendCount);
+  useEffect(() => {
+    sendCountRef.current = sendCount;
+  }, [sendCount]);
+
+  const handleCount = useCallback((value: number) => {
+    latestCount.current = value;
+    setCounted(value);
+    clearTimeout(countTimer.current);
+    countTimer.current = setTimeout(() => sendCountRef.current(value), COUNT_DEBOUNCE_MS);
+  }, []);
+
+  // Leaving the day with taps still waiting must not lose them.
+  useEffect(() => () => {
+    if (countTimer.current !== undefined && latestCount.current !== null) {
+      clearTimeout(countTimer.current);
+      sendCountRef.current(latestCount.current);
+    }
+  }, []);
+
+  // Marks only make sense for a day that can be marked: not a pause, not a
+  // rest day, not one that has not come, and — for a weekly habit — not once
+  // the week is full. A counted habit takes a count instead of a tick.
+  const markable = !isFuture && !off && !weekMet;
 
   const handlers = useSwipeable({
     onSwiping: e => {
-      if (isFuture) return;
+      if (isFuture || off || weekMet || target) return;
       setSwipeDelta(e.deltaX);
       if (Math.abs(e.deltaX) > 10) wasSwipedRef.current = true;
     },
     onSwiped: e => {
-      if (!isFuture) {
+      if (markable && !target) {
         if (e.deltaX > 80)       handleMark('done');
         else if (e.deltaX < -80) handleMark('failed');
       }
@@ -126,7 +205,7 @@ function HabitCard({ habit }: IHabitCardProps) {
     <>
       <div className="relative overflow-hidden rounded-2xl bg-surface">
         {/* What the gesture will do, shown underneath the card as it moves. */}
-        {!isFuture && swipeDelta !== 0 && (
+        {markable && !target && swipeDelta !== 0 && (
           <div
             aria-hidden
             className={cn(
@@ -149,7 +228,7 @@ function HabitCard({ habit }: IHabitCardProps) {
             'relative z-20 flex items-center justify-between gap-3 p-4 rounded-2xl bg-surface',
             'ring-inset',
             style ? `ring-[1.5px] ${style.ring}` : 'ring-1 ring-line',
-            isFuture && 'opacity-60',
+            (isFuture || weekMet) && 'opacity-60',
           )}
           // Read by the tests, and by anything that needs the verdict without
           // reverse-engineering a colour.
@@ -164,12 +243,22 @@ function HabitCard({ habit }: IHabitCardProps) {
             <span className="min-w-0">
               <span className="body-bold block truncate">{habit.title}</span>
               <span className="alternative block text-ink-muted truncate">
-                {habit.dayInfo.dayTitle || `Day ${dayNumberOf(habit.startDate, habit.dayInfo.date)}`}
+                {habit.day.session?.title || habit.description || habit.title}
               </span>
+              {week && (
+                <span className="chip block text-ink-muted">
+                  {week.done} / {week.target} this week
+                </span>
+              )}
             </span>
             {style && (
               <span className={cn('chip px-2 py-0.5 rounded-full shrink-0', style.badge)}>
                 {style.word}
+              </span>
+            )}
+            {weekMet && !style && (
+              <span className="chip px-2 py-0.5 rounded-full shrink-0 bg-success-soft text-success">
+                Week done
               </span>
             )}
           </button>
@@ -177,7 +266,17 @@ function HabitCard({ habit }: IHabitCardProps) {
           {/* These were `hidden lg:flex`, so below 1024px the only way to mark
               a habit was a swipe nobody had been told about — and there was no
               keyboard path at any width. */}
-          {!isFuture && (
+          {markable && target && (
+            <CounterControl
+              title={habit.title}
+              type={habit.type}
+              target={target}
+              value={counted ?? habit.day.value}
+              onChange={handleCount}
+            />
+          )}
+
+          {markable && !target && (
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
@@ -209,6 +308,15 @@ function HabitCard({ habit }: IHabitCardProps) {
           )}
         </motion.div>
       </div>
+
+      {askingWhy && (
+        <ReasonSheet
+          habit={habit}
+          date={habit.day.date}
+          open={askingWhy}
+          onOpenChange={setAskingWhy}
+        />
+      )}
 
       <AnimatePresence>
         {showDetail && (

@@ -3,7 +3,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { addDays, format, startOfWeek } from "date-fns";
 import Main from "@pages/Main";
-import { renderWithProviders } from "../testUtils";
+import { makeHabitSummary, renderWithProviders } from "../testUtils";
 
 const fetchMock = vi.fn();
 
@@ -107,5 +107,85 @@ describe("Main", () => {
     await clickCell(user, today);
 
     expect(requestedDays()).toEqual([format(today, "yyyy-MM-dd")]);
+  });
+
+  describe("grouping by the part of the day", () => {
+    const dayOf = (habits: ReturnType<typeof makeHabitSummary>[]) =>
+      new Response(JSON.stringify({ success: true, data: { date: "", habits } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    const habitAt = (title: string, timeOfDay: "morning" | "evening" | "anytime") =>
+      makeHabitSummary({
+        _id: title,
+        title,
+        timeOfDay,
+        day: { date: `${format(new Date(), "yyyy-MM-dd")}T00:00:00.000Z`, state: "pending", completedSteps: [] },
+      });
+
+    it("sets habits under the part of the day they belong to", async () => {
+      fetchMock.mockResolvedValue(dayOf([habitAt("Run", "morning"), habitAt("Read", "evening")]));
+
+      renderWithProviders(<Main />, { preloadedState: thisWeek() });
+
+      expect(await screen.findByRole("heading", { name: "Morning" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Evening" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Afternoon" })).not.toBeInTheDocument();
+    });
+
+    it("does not head a day that has only one part", async () => {
+      fetchMock.mockResolvedValue(dayOf([habitAt("Run", "anytime"), habitAt("Read", "anytime")]));
+
+      renderWithProviders(<Main />, { preloadedState: thisWeek() });
+
+      expect((await screen.findAllByText("Run")).length).toBeGreaterThan(0);
+      expect(screen.queryByRole("heading", { name: "Anytime" })).not.toBeInTheDocument();
+    });
+  });
+
+  describe("the day's journal", () => {
+    /** Answers every day asked for with that day, carrying the given journal entry. */
+    const answerEachDay = (journalFor: (date: string) => unknown) =>
+      fetchMock.mockImplementation(async (url: string) => {
+        const date = new URL(String(url), "http://x").searchParams.get("date") ?? "";
+        return new Response(
+          JSON.stringify({ success: true, data: { date: `${date}T00:00:00.000Z`, habits: [], journal: journalFor(date) } }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      });
+
+    it("sits below the habits of a day that has begun, even with no habits", async () => {
+      answerEachDay(() => null);
+
+      renderWithProviders(<Main />, { preloadedState: thisWeek() });
+
+      expect(await screen.findByRole("region", { name: "Your day" })).toBeInTheDocument();
+      expect(await screen.findByText("Nothing scheduled for this day")).toBeInTheDocument();
+    });
+
+    it("shows the entry the day already has", async () => {
+      answerEachDay((date) => ({ _id: "j", day: `${date}T00:00:00.000Z`, mood: 4 }));
+
+      renderWithProviders(<Main />, { preloadedState: thisWeek() });
+
+      expect(await screen.findByRole("radio", { name: /Good \(4 of 5\)/ })).toHaveAttribute("aria-checked", "true");
+    });
+
+    it("is not offered for a day that has not come", async () => {
+      const user = userEvent.setup();
+      answerEachDay(() => null);
+      // The week after this one starts on a day that has not come.
+      const nextWeek = addDays(weekStart(), 7);
+
+      renderWithProviders(<Main />, {
+        preloadedState: { calendar: { currentWeekStart: nextWeek.toISOString() } },
+      });
+      await user.click(screen.getByText(String(nextWeek.getDate())));
+
+      await waitFor(() => expect(lastRequestedDay()).toBe(format(nextWeek, "yyyy-MM-dd")));
+      await screen.findByText("Nothing scheduled for this day");
+      expect(screen.queryByRole("region", { name: "Your day" })).not.toBeInTheDocument();
+    });
   });
 });

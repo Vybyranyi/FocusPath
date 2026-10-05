@@ -4,6 +4,7 @@ import Report, { type IReport } from '@models/Report';
 import User from '@models/User';
 import Habit from '@models/Habit';
 import {
+    BadRequestError,
     ConflictError,
     ContentRejectedError,
     NotFoundError,
@@ -12,7 +13,8 @@ import {
 import { logger } from '@config/logger';
 import { requireOwnedHabit } from '@services/habitService';
 import { reviewPlan, MODERATION_MODEL } from '@services/moderationService';
-import { scheduleHash } from '@services/planContent';
+import { rulesOf } from '@services/habitView';
+import { contentHash } from '@services/planContent';
 import { matureAuthorPlans } from '@services/planStats';
 import type { PlanSection, PlanSummary } from '@shared/index';
 import type { PublishPlanDto, ReportPlanDto, UpdatePlanDto } from '@validation/planSchemas';
@@ -39,7 +41,18 @@ export const publishPlan = async (userId: string, dto: PublishPlanDto): Promise<
         throw new ConflictError('This habit has already been published');
     }
 
-    const dayTitles = habit.dailyCompletions.map(day => day.dayTitle);
+    // Only a programme has anything to hand to the library: a habit with no end
+    // is a rhythm, not a route, and has no tasks to copy.
+    if (!habit.program) {
+        throw new BadRequestError('Only a habit with an end can be published');
+    }
+
+    const dayTitles = habit.program.map(session => session.title);
+    // What the author runs now. The plan is a snapshot of the habit as it stands,
+    // and `scheduleHashOfHabit` reads the same rule, so the two agree until the
+    // habit's rhythm is changed afterwards.
+    const rules = rulesOf(habit);
+    const current = rules[rules.length - 1];
 
     // Fail closed. Publishing is not urgent — unlike habit generation, which is
     // already allowed to fall over with a 503 — and an unreviewed plan sitting
@@ -68,13 +81,16 @@ export const publishPlan = async (userId: string, dto: PublishPlanDto): Promise<
         category: dto.category,
         language: review.language,
         type: habit.type,
-        duration: habit.duration,
+        duration: dayTitles.length,
+        frequency: current.frequency,
+        target: current.target,
+        timeOfDay: habit.timeOfDay,
         color: habit.color,
         icon: habit.icon,
         days: dayTitles.map(dayTitle => ({ dayTitle })),
         author: { userId, displayName: dto.displayName },
         sourceHabitId: habit._id,
-        contentHash: scheduleHash(habit.duration, dayTitles),
+        contentHash: contentHash({ frequency: current.frequency, target: current.target }, dayTitles),
         moderation: {
             checkedAt: new Date(),
             model: MODERATION_MODEL,
@@ -226,6 +242,9 @@ export const listPlans = async (
                 language: 1,
                 type: 1,
                 duration: 1,
+                frequency: { $ifNull: ['$frequency', { kind: 'daily' }] },
+                target: 1,
+                timeOfDay: { $ifNull: ['$timeOfDay', 'anytime'] },
                 color: 1,
                 icon: 1,
                 proven: 1,

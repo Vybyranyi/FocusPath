@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import { DAY_STATUSES } from '@models/Habit';
+import { TIMES_OF_DAY } from '@models/Habit';
+import { MAX_DAY_VALUE, MAX_NOTE, MAX_REASON_TEXT, REASON_CODES } from '@models/HabitDay';
+import { dayKey } from '@validation/journalSchemas';
 import { objectId } from '@validation/common';
 
 export const habitParamsSchema = z.object({ id: objectId('habit ID') });
@@ -12,11 +14,57 @@ export const stepParamsSchema = z.object({
 export type StepParams = z.infer<typeof stepParamsSchema>;
 
 const title = z.string().trim().min(1, 'Required').max(100, 'Must be 100 characters or fewer');
-const duration = z
-    .number('Duration must be a number')
-    .int('Duration must be a whole number of days')
-    .min(1, 'Duration must be between 1 and 365 days')
-    .max(365, 'Duration must be between 1 and 365 days');
+const sessions = z
+    .number('Sessions must be a number')
+    .int('Sessions must be a whole number')
+    .min(1, 'Sessions must be between 1 and 365')
+    .max(365, 'Sessions must be between 1 and 365');
+
+/** A quantity with at most one decimal place, so "2.5 km" fits and 0.1 + 0.2 does not. */
+const oneDecimal = (value: number): boolean => Math.round(value * 10) / 10 === value;
+
+const frequency = z.discriminatedUnion(
+    'kind',
+    [
+        z.object({ kind: z.literal('daily') }),
+        z.object({
+            kind: z.literal('weekdays'),
+            days: z
+                .array(z.number().int().min(1, 'Days run from 1 (Monday) to 7 (Sunday)').max(7, 'Days run from 1 (Monday) to 7 (Sunday)'))
+                .min(1, 'Choose at least one day')
+                .refine(days => new Set(days).size === days.length, 'Days must not repeat')
+                .transform(days => [...days].sort((a, b) => a - b)),
+        }),
+        z.object({
+            kind: z.literal('weekly'),
+            times: z
+                .number('Times must be a number')
+                .int('Times must be a whole number')
+                .min(1, 'Times per week must be between 1 and 7')
+                .max(7, 'Times per week must be between 1 and 7'),
+        }),
+    ],
+    'Frequency must be daily, weekdays or weekly',
+);
+
+const target = z.object({
+    value: z
+        .number('Target must be a number')
+        .positive('Target must be greater than zero')
+        .max(MAX_DAY_VALUE, `Target must be at most ${MAX_DAY_VALUE}`)
+        .refine(oneDecimal, 'Target may have one decimal place at most'),
+    unit: z.string().trim().min(1, 'Unit is required').max(20, 'Unit must be 20 characters or fewer'),
+});
+
+const timeOfDay = z.enum(TIMES_OF_DAY, 'Time of day must be morning, afternoon, evening or anytime');
+
+/**
+ * The client's own idea of today, as a day key. Only a day within one of the
+ * server's is believed — see `resolveToday` — because a user west of Greenwich
+ * is still on yesterday for hours after the server has turned over, and
+ * "missed" must not be said of a day they are still living.
+ */
+const clientToday = z.coerce.date('Today must be a valid date').optional();
 
 const habitType = z.enum(['build', 'quit'], 'Type must be either "build" or "quit"');
 
@@ -74,7 +122,11 @@ export const createHabitSchema = z.object({
     category: z.string().trim().max(50, 'Must be 50 characters or fewer').optional(),
     steps: steps.optional(),
     startDate,
-    duration,
+    // Absent means the habit has no end.
+    sessions: sessions.nullish(),
+    frequency: frequency.default({ kind: 'daily' }),
+    target: target.optional(),
+    timeOfDay: timeOfDay.default('anytime'),
     type: habitType,
     color: z.string().trim().min(1, 'Required'),
     icon: z.string().trim().min(1, 'Required'),
@@ -97,10 +149,14 @@ export type CreateHabitDto = z.infer<typeof createHabitSchema>;
 export const createHabitFromPlanSchema = z.object({
     planId: objectId('plan ID'),
     startDate,
-    // Allowed, but a clone whose length differs no longer matches the plan's
-    // content hash and so drops out of its completion statistics. Someone who
-    // did 30 days of a 90-day plan did not walk that plan.
-    duration: duration.optional(),
+    // Allowed, but a clone whose length, rhythm or target differs no longer
+    // matches the plan's content hash and so drops out of its completion
+    // statistics. Someone who did 30 sessions of a 90-session plan did not walk
+    // that plan.
+    sessions: sessions.optional(),
+    frequency: frequency.optional(),
+    // `null` takes the plan's goal away; absent keeps it.
+    target: target.nullable().optional(),
     color: z.string().trim().min(1).optional(),
     icon: z.string().trim().min(1).optional(),
 });
@@ -115,8 +171,12 @@ export const createAIHabitSchema = z.object({
     category: z.string().trim().max(50, 'Must be 50 characters or fewer').optional(),
     steps: steps.optional(),
     startDate,
-    // Absent, null or zero all mean "let the model choose the length".
-    duration: duration.nullish(),
+    // Absent, null or zero all mean "let the model choose the length". A habit
+    // with no end cannot be asked for here: there is no plan to write for it.
+    sessions: z.union([sessions, z.literal(0)]).nullish(),
+    frequency: frequency.default({ kind: 'daily' }),
+    target: target.optional(),
+    timeOfDay: timeOfDay.default('anytime'),
     type: habitType,
     color: z.string().trim().min(1, 'Required'),
     icon: z.string().trim().min(1, 'Required'),
@@ -132,7 +192,14 @@ export const updateHabitSchema = z
         // No not-in-past rule here: an existing habit may legitimately have
         // started before today, and rescheduling one is not creating one.
         startDate: z.coerce.date('Must be a valid date').optional(),
-        duration: duration.optional(),
+        // Lengthens or shortens a programme. A habit with no end cannot be given
+        // one, nor a programme taken down to none — see `updateHabit`.
+        sessions: sessions.optional(),
+        // Either one starts a new rule today; the past keeps the rule it ran under.
+        frequency: frequency.optional(),
+        // `null` takes the target away.
+        target: target.nullable().optional(),
+        timeOfDay: timeOfDay.optional(),
         type: habitType.optional(),
         color: z.string().trim().min(1).optional(),
         icon: z.string().trim().min(1).optional(),
@@ -145,8 +212,9 @@ export type UpdateHabitDto = z.infer<typeof updateHabitSchema>;
 
 export const markCompletionSchema = z.object({
     date: z.coerce.date('Must be a valid date').optional(),
+    today: clientToday,
     status: z.enum(
-        DAY_STATUSES,
+        ['pending', 'done', 'failed'],
         'Status must be one of "pending", "done" or "failed"',
     ),
 });
@@ -155,14 +223,67 @@ export type MarkCompletionDto = z.infer<typeof markCompletionSchema>;
 /** Which day a step is being ticked on. A step is done on a day, not once and for all. */
 export const toggleStepSchema = z.object({
     date: z.coerce.date('Must be a valid date'),
+    today: clientToday,
 });
 export type ToggleStepDto = z.infer<typeof toggleStepSchema>;
 
-export const updateDayTitleSchema = z.object({
-    date: z.coerce.date('Must be a valid date'),
-    dayTitle: z.string().trim().min(1, 'Day title is required').max(200),
+/**
+ * Renames a session of a programme. It is the session that is named, not a
+ * calendar day: with pauses and rest days in the way, the two no longer line up.
+ */
+export const updateSessionTitleSchema = z.object({
+    session: sessions,
+    title: z.string().trim().min(1, 'Title is required').max(200),
 });
-export type UpdateDayTitleDto = z.infer<typeof updateDayTitleSchema>;
+export type UpdateSessionTitleDto = z.infer<typeof updateSessionTitleSchema>;
+
+/** The quantity counted on one day of a habit that has a target. */
+export const setValueSchema = z.object({
+    date: z.coerce.date('Must be a valid date'),
+    today: clientToday,
+    value: z
+        .number('Value must be a number')
+        .min(0, 'Value cannot be negative')
+        .max(MAX_DAY_VALUE, `Value must be at most ${MAX_DAY_VALUE}`)
+        .refine(oneDecimal, 'Value may have one decimal place at most'),
+});
+export type SetValueDto = z.infer<typeof setValueSchema>;
+
+export const pauseParamsSchema = z.object({
+    id: objectId('habit ID'),
+    pauseId: objectId('pause ID'),
+});
+export type PauseParams = z.infer<typeof pauseParamsSchema>;
+
+export const addPauseSchema = z
+    .object({
+        from: z.coerce.date('Must be a valid date'),
+        to: z.coerce.date('Must be a valid date').optional(),
+    })
+    .refine(body => !body.to || body.to >= body.from, {
+        message: 'A pause cannot end before it starts',
+        path: ['to'],
+    });
+export type AddPauseDto = z.infer<typeof addPauseSchema>;
+
+/** Ends a pause — or moves its end. Resuming a habit is `to` = yesterday. */
+export const endPauseSchema = z.object({
+    to: z.coerce.date('Must be a valid date'),
+});
+export type EndPauseDto = z.infer<typeof endPauseSchema>;
+
+export const addRestDaySchema = z.object({
+    date: z.coerce.date('Must be a valid date'),
+});
+export type AddRestDayDto = z.infer<typeof addRestDaySchema>;
+
+// A string, not coerced: route params are typed as strings throughout, and the
+// handler turns this one into a day itself.
+export const restDayParamsSchema = z.object({
+    id: objectId('habit ID'),
+    date: z.string().refine(value => !Number.isNaN(Date.parse(value)), 'Must be a valid date'),
+});
+export type RestDayParams = z.infer<typeof restDayParamsSchema>;
 
 /**
  * Checked but not coerced — Express 5 will not accept a rewritten req.query, so
@@ -170,4 +291,30 @@ export type UpdateDayTitleDto = z.infer<typeof updateDayTitleSchema>;
  */
 export const habitsForDateQuerySchema = z.object({
     date: z.coerce.date('Must be a valid date').optional(),
+    today: clientToday,
 });
+
+export const dayNoteParamsSchema = z.object({ id: objectId('habit ID'), day: dayKey });
+export type DayNoteParams = z.infer<typeof dayNoteParamsSchema>;
+
+/** A few words about how a day went. An empty note takes it away. */
+export const setNoteSchema = z.object({
+    note: z.string('A note is required').trim().max(MAX_NOTE, `Must be ${MAX_NOTE} characters or fewer`),
+});
+export type SetNoteDto = z.infer<typeof setNoteSchema>;
+
+/**
+ * Why a day was failed — or that the question was asked and set aside, so it is
+ * not asked again. A closed list of codes, because only a closed list can be
+ * counted.
+ */
+export const setReasonSchema = z.union([
+    z.object({
+        code: z.enum(REASON_CODES as [string, ...string[]], 'Pick one of the listed reasons'),
+        text: z.string().trim().max(MAX_REASON_TEXT, `Must be ${MAX_REASON_TEXT} characters or fewer`).optional(),
+    }),
+    z.object({ skipped: z.literal(true) }),
+]);
+export type SetReasonDto =
+    | { code: (typeof REASON_CODES)[number]; text?: string }
+    | { skipped: true };

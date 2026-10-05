@@ -4,6 +4,7 @@ import type { PlanSummary } from "@shared/index";
 import { CompletionStat, PlanBadges } from "@components/explore/PlanBadges";
 import { categoryLabel, PLAN_CATEGORY_TINTS, isPlanCategory } from "@/lib/planCategories";
 import { languageLabel } from "@/lib/planLanguages";
+import { frequencyLabel } from "@/lib/schedule";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,8 +35,8 @@ export default function PlanCard({ plan }: { plan: PlanSummary }) {
         <div className="min-w-0 flex flex-col gap-1">
           <h3 className="title text-ink line-clamp-2">{plan.title}</h3>
           <p className="alternative text-ink-2">
-            {plan.duration} days · {plan.type === "build" ? "Build" : "Quit"} ·{" "}
-            {languageLabel(plan.language)}
+            {plan.duration} sessions · {frequencyLabel(plan.frequency)} ·{" "}
+            {plan.type === "build" ? "Build" : "Quit"} · {languageLabel(plan.language)}
           </p>
         </div>
       </div>

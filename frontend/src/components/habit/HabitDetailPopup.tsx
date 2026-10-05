@@ -3,15 +3,26 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Emoji } from 'react-apple-emojis';
 import { useAppDispatch } from '@store/hooks';
-import { toggleHabitStep, deleteHabit } from '@store/habitSlice';
-import { getHabitProgress } from '@/lib/habitProgress';
-import { dayKeyOf, dayNumberOf, fromDayKey, relativeDayLabel, todayKey } from '@/lib/dates';
-import { isDone } from '@/lib/habitStatus';
+import {
+  addRestDay,
+  deleteHabit,
+  endPause,
+  removePause,
+  removeRestDay,
+  saveDayNote,
+  toggleHabitStep,
+} from '@store/habitSlice';
+import { habitCompletion } from '@/lib/habitProgress';
+import { dayKeyOf, fromDayKey, relativeDayLabel, toDayKey, todayKey } from '@/lib/dates';
+import { isDone, isOff } from '@/lib/habitStatus';
 import type { HabitSummary } from '@shared/index';
-import { format, addDays } from 'date-fns';
+import { addDays, format } from 'date-fns';
 import Button from '@components/ui/Button';
 import PublishPlanSheet from '@components/explore/PublishPlanSheet';
 import EditHabitSheet from '@components/habit/EditHabitSheet';
+import PauseSheet from '@components/habit/PauseSheet';
+import ReasonSheet from '@components/habit/ReasonSheet';
+import { NOTE_MAX, REASON_LABELS } from '@/lib/journal';
 import { cn } from '@/lib/utils';
 import { useToast } from '@hooks/useToast';
 import { useNavigate } from 'react-router';
@@ -48,6 +59,13 @@ const TrashIcon = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
     <polyline points="3 6 5 6 21 6" />
     <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+  </svg>
+);
+
+const PauseIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+    <rect x="6" y="5" width="4" height="14" rx="1" />
+    <rect x="14" y="5" width="4" height="14" rx="1" />
   </svg>
 );
 
@@ -101,6 +119,9 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [editing, setEditing] = useState(false);
+  const [pausing, setPausing] = useState(false);
+  const [changingReason, setChangingReason] = useState(false);
+  const [note, setNote] = useState(habit.day.note ?? '');
 
   /**
    * Radix hands focus back to its own `Dialog.Trigger`. This sheet is mounted
@@ -119,16 +140,69 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
   // had any, on the grounds that they were "a finer measure of the same thing"
   // — but a day's checklist says nothing about how far through ninety days
   // someone is, and the number jumped between two meanings.
-  const progress = getHabitProgress(habit.completedCount, habit.duration);
+  const progress = habitCompletion(habit.progress);
 
   const steps = habit.steps ?? [];
-  const ticked = new Set(habit.dayInfo.completedSteps);
+  const ticked = new Set(habit.day.completedSteps);
   const tickedCount = steps.filter(step => ticked.has(step._id)).length;
   // Like marking the day itself, a checklist is not for a day that has not come.
-  const isFutureDay = dayKeyOf(habit.dayInfo.date) > todayKey();
+  const isFutureDay = dayKeyOf(habit.day.date) > todayKey();
 
   const handleToggleStep = (stepId: string) => {
-    dispatch(toggleHabitStep({ habitId: habit._id, stepId, date: habit.dayInfo.date }));
+    dispatch(toggleHabitStep({ habitId: habit._id, stepId, date: habit.day.date }));
+  };
+
+  // The pause covering today, if there is one — the thing "Resume" ends.
+  const today = todayKey();
+  const shownDay = dayKeyOf(habit.day.date);
+  const currentPause = habit.pauses.find(
+    (pause) => dayKeyOf(pause.from) <= today && (!pause.to || dayKeyOf(pause.to) >= today),
+  );
+  const yesterday = toDayKey(addDays(fromDayKey(today), -1));
+
+  // A rest day is for a daily habit, on a day that is still to be decided — and
+  // not before today, since the server will not backdate one.
+  const isRestDay = habit.day.state === 'rest';
+  const canRest =
+    habit.frequency.kind === 'daily' &&
+    shownDay >= today &&
+    ['pending', 'missed'].includes(habit.day.state);
+
+  const refusal = (reason: unknown) =>
+    notify(typeof reason === 'string' ? reason : 'Could not save the change', 'danger');
+
+  /**
+   * A pause that has begun is only ever closed from yesterday on; one that has
+   * not yet begun — or begins today — is simply taken back, which the server
+   * allows and which is what "resume" means for it.
+   */
+  /** Kept when the field is left, not on every keystroke: a note is a thought, not a stream. */
+  const handleSaveNote = () => {
+    const next = note.trim();
+    if (next === (habit.day.note ?? '')) return;
+
+    dispatch(saveDayNote({ habitId: habit._id, date: habit.day.date, note: next }))
+      .unwrap()
+      .catch(refusal);
+  };
+
+  const handleResume = () => {
+    if (!currentPause) return;
+    const request = dayKeyOf(currentPause.from) >= yesterday
+      ? removePause({ habitId: habit._id, day: shownDay, pauseId: currentPause._id })
+      : endPause({ habitId: habit._id, day: shownDay, pauseId: currentPause._id, to: yesterday });
+
+    dispatch(request).unwrap().then(() => notify(`“${habit.title}” is back`)).catch(refusal);
+  };
+
+  const handleRestDay = () => {
+    dispatch(
+      isRestDay
+        ? removeRestDay({ habitId: habit._id, day: shownDay, date: shownDay })
+        : addRestDay({ habitId: habit._id, day: shownDay, date: shownDay }),
+    )
+      .unwrap()
+      .catch(refusal);
   };
 
   const handleDelete = () => {
@@ -137,20 +211,13 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
     onClose();
   };
 
-  const calculateDeadline = () => {
-    if (!habit.startDate || !habit.duration) return null;
-    try {
-        // Through the day key, so the deadline is counted from the day the
-        // schedule actually names rather than from whatever local day midnight
-        // UTC happens to fall on here.
-        const start = fromDayKey(dayKeyOf(habit.startDate));
-        return format(addDays(start, habit.duration - 1), 'MMM do, yyyy');
-    } catch {
-        return null;
-    }
-  };
-
-  const deadline = calculateDeadline();
+  // The projected last day, which the server moves with every pause. A habit
+  // with no end has none to show; one paused with no end has none to know.
+  const deadline = habit.endDate
+    ? format(fromDayKey(dayKeyOf(habit.endDate)), 'MMM do, yyyy')
+    : habit.sessions === undefined
+      ? 'No end'
+      : null;
 
   return (
     /*
@@ -158,7 +225,7 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
      * it. Two stacked sheets meant two overlays, two blurs and a card the user
      * could see but not reach; cancelling brings this one straight back.
      */
-    <Dialog.Root open={!publishing && !editing} onOpenChange={(next) => { if (!next) onClose(); }}>
+    <Dialog.Root open={!publishing && !editing && !pausing && !changingReason} onOpenChange={(next) => { if (!next) onClose(); }}>
       <Dialog.Portal>
         <Dialog.Overlay asChild>
           <motion.div
@@ -261,7 +328,38 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                             <PencilIcon />
                             Edit habit
                          </button>
-                         {habit.publishedPlanId ? (
+                         {currentPause ? (
+                           <button
+                             type="button"
+                             onClick={() => { setMenuOpen(false); handleResume(); }}
+                             className="w-full text-left px-4 py-3 body-bold text-ink hover:bg-canvas transition-colors flex items-center gap-2 cursor-pointer"
+                           >
+                              <PauseIcon />
+                              Resume habit
+                           </button>
+                         ) : (
+                           <button
+                             type="button"
+                             onClick={() => { setMenuOpen(false); setPausing(true); }}
+                             className="w-full text-left px-4 py-3 body-bold text-ink hover:bg-canvas transition-colors flex items-center gap-2 cursor-pointer"
+                           >
+                              <PauseIcon />
+                              Pause habit
+                           </button>
+                         )}
+                         {(canRest || isRestDay) && (
+                           <button
+                             type="button"
+                             onClick={() => { setMenuOpen(false); handleRestDay(); }}
+                             className="w-full text-left px-4 py-3 body-bold text-ink hover:bg-canvas transition-colors flex items-center gap-2 cursor-pointer"
+                           >
+                              <PauseIcon />
+                              {isRestDay ? 'Take back rest day' : 'Rest on this day'}
+                           </button>
+                         )}
+                         {/* Only a programme can be published: a habit with no
+                             end has no tasks to hand to the library. */}
+                         {habit.sessions === undefined ? null : habit.publishedPlanId ? (
                            <button
                              type="button"
                              onClick={() => { setMenuOpen(false); onClose(); navigate(`/explore/${habit.publishedPlanId}`); }}
@@ -358,12 +456,12 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                 <div className="bg-canvas rounded-2xl p-5 flex flex-col justify-center items-center border border-line">
                     <p className="chip text-ink-muted mb-2">Current streak</p>
                     <p className="display-3 text-ink leading-none">{habit.currentStreak}</p>
-                    <p className="chip text-ink-muted mt-1">Days</p>
+                    <p className="chip text-ink-muted mt-1">{habit.streakUnit === 'week' ? 'Weeks' : 'Days'}</p>
                 </div>
                 <div
                     className={cn(
                       'rounded-2xl p-5 flex flex-col justify-center items-center border transition-colors',
-                      isDone(habit.dayInfo)
+                      isDone(habit.day)
                         ? 'bg-success-soft border-success/30'
                         : 'bg-canvas border-line',
                     )}
@@ -371,10 +469,10 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                     {/* The day on screen, which is only sometimes today: the
                         sheet opens from whichever day is selected, and this
                         tile said "Today" for all of them. */}
-                    <p className={cn('chip mb-2', isDone(habit.dayInfo) ? 'text-success' : 'text-ink-muted')}>
-                      {relativeDayLabel(dayKeyOf(habit.dayInfo.date))}
+                    <p className={cn('chip mb-2', isDone(habit.day) ? 'text-success' : 'text-ink-muted')}>
+                      {relativeDayLabel(dayKeyOf(habit.day.date))}
                     </p>
-                    {isDone(habit.dayInfo) ? (
+                    {isDone(habit.day) ? (
                          <span className="flex flex-col items-center gap-1 text-success">
                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                              <polyline points="20 6 9 17 4 12" />
@@ -383,11 +481,50 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                          </span>
                     ) : (
                         <p className="title text-ink-2 text-center leading-tight">
-                           {habit.dayInfo.dayTitle || `Day ${dayNumberOf(habit.startDate, habit.dayInfo.date)}`}
+                           {isOff(habit.day)
+                             ? (habit.day.state === 'paused' ? 'Paused' : 'Rest day')
+                             : habit.day.session?.title || habit.title}
                         </p>
                     )}
                 </div>
             </div>
+
+            {/* What happened on this day, in the person's own words. Not for a
+                day that has not come. */}
+            {!isFutureDay && (
+              <div className="flex flex-col gap-2">
+                <label htmlFor={`note-${habit._id}`} className="field-label text-ink-2">
+                  Note for this day
+                </label>
+                <textarea
+                  id={`note-${habit._id}`}
+                  rows={2}
+                  maxLength={NOTE_MAX}
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                  onBlur={handleSaveNote}
+                  placeholder="How did it go?"
+                  className="w-full rounded-xl bg-canvas p-3 text-xs leading-5 text-ink placeholder:text-ink-muted border border-line focus:border-accent"
+                />
+              </div>
+            )}
+
+            {habit.day.state === 'failed' && (
+              <div className="flex items-center justify-between gap-3 rounded-2xl bg-danger-soft p-4">
+                <p className="alternative text-ink">
+                  {habit.day.failureReason
+                    ? <>Why not: <strong>{REASON_LABELS[habit.day.failureReason.code]}</strong>{habit.day.failureReason.text ? ` — ${habit.day.failureReason.text}` : ''}</>
+                    : 'No reason given for this day.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setChangingReason(true)}
+                  className="min-h-11 shrink-0 alternative text-accent cursor-pointer"
+                >
+                  {habit.day.failureReason ? 'Change' : 'Add'}
+                </button>
+              </div>
+            )}
 
             {/* The day's checklist */}
             {steps.length > 0 && (
@@ -445,6 +582,20 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
           now rather than from whatever was typed and abandoned last time. */}
       {editing && (
         <EditHabitSheet habit={habit} open={editing} onOpenChange={setEditing} />
+      )}
+
+      {changingReason && (
+        <ReasonSheet
+          habit={habit}
+          date={habit.day.date}
+          current={habit.day.failureReason}
+          open={changingReason}
+          onOpenChange={setChangingReason}
+        />
+      )}
+
+      {pausing && (
+        <PauseSheet habit={habit} open={pausing} onOpenChange={setPausing} />
       )}
 
       <PublishPlanSheet

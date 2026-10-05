@@ -12,15 +12,14 @@ vi.mock("react-apple-emojis", () => ({
   ),
 }));
 
-const habit = (id: string, completed: boolean) =>
+const habit = (id: string, completed: boolean, day: Partial<HabitSummary["day"]> = {}) =>
   makeHabitSummary({
     _id: id,
-    dayInfo: {
-      _id: `${id}-day`,
-      dayTitle: "task",
+    day: {
       completedSteps: [],
       date: "2025-01-06T00:00:00.000Z",
-      status: completed ? "done" : "pending",
+      state: completed ? "done" : "pending",
+      ...day,
     },
   });
 
@@ -87,6 +86,38 @@ describe("ProgressBanner", () => {
     expect(screen.getByText("2 of 2 completed")).toBeInTheDocument();
     // At 100% the loader swaps its label for a tick.
     expect(screen.getByAltText("done")).toBeInTheDocument();
+  });
+
+  /** A habit that is paused, or resting today, asks nothing — it is neither owed nor done. */
+  it("leaves out habits that are paused or resting", () => {
+    renderWithProviders(<ProgressBanner />, {
+      preloadedState: withHabits([
+        habit("a", true),
+        habit("b", false, { state: "paused" }),
+        habit("c", false, { state: "rest" }),
+      ]),
+    });
+
+    expect(screen.getByText("1 of 1 completed")).toBeInTheDocument();
+  });
+
+  it("counts a weekly habit whose week is met as done", () => {
+    renderWithProviders(<ProgressBanner />, {
+      preloadedState: withHabits([
+        habit("a", false, { week: { done: 3, target: 3 } }),
+        habit("b", false, { week: { done: 1, target: 3 } }),
+      ]),
+    });
+
+    expect(screen.getByText("1 of 2 completed")).toBeInTheDocument();
+  });
+
+  it("renders nothing when every habit of the day is paused", () => {
+    renderWithProviders(<ProgressBanner />, {
+      preloadedState: withHabits([habit("a", false, { state: "paused" })]),
+    });
+
+    expect(screen.queryByText(/completed/)).not.toBeInTheDocument();
   });
 
   it("renders the fire emoji alongside the message", () => {

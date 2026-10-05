@@ -1,4 +1,6 @@
-import type { Habit } from "./habit";
+import type { HabitExport } from "./habit";
+import type { CoachCard } from "./coach";
+import type { JournalEntry } from "./journal";
 import type { Plan } from "./plan";
 
 export type Gender = "male" | "female";
@@ -35,8 +37,26 @@ export interface User {
      * information about a specific person.
      */
     displayName?: string;
+    preferences?: UserPreferences;
     createdAt: string;
     updatedAt: string;
+}
+
+/** Settings a person chooses. Every one has a default, so a user without any is valid. */
+export interface UserPreferences {
+    /** Ask why, right after a habit is marked failed. */
+    askFailureReason: boolean;
+    /**
+     * ISO 639-1 language the coach writes in. Absent means "automatic": the
+     * language the habits are named in.
+     */
+    coachLanguage?: string;
+    /**
+     * Whether the coach may read the notes and journal text of the last two
+     * weeks. Off unless the person turns it on: the numbers carry most of the
+     * value without a word of anything personal leaving the account.
+     */
+    coachReadsNotes: boolean;
 }
 
 /**
@@ -47,6 +67,8 @@ export interface AccountExport {
     /** ISO 8601 timestamp of when the export was made. */
     exportedAt: string;
     user: User;
-    habits: Habit[];
+    habits: HabitExport[];
+    journal: JournalEntry[];
+    coachCards: CoachCard[];
     plans: Plan[];
 }

@@ -1,4 +1,5 @@
 import type { HabitType } from "@shared/index";
+import type { ScheduleDraft } from "@/lib/schedule";
 
 /**
  * A step while it is being written. `_id` is present only for a step the habit
@@ -32,10 +33,15 @@ export interface CreateHabitFormValues {
   steps: StepDraft[];
   startDate: Date | undefined;
   /**
-   * The "let AI choose the number of days" switch — nothing more. Which
+   * The "let AI choose the number of sessions" switch — nothing more. Which
    * button submitted the form is not form state.
    */
   autoDuration: boolean;
+  /** The programme's length in sessions, as typed. Unused when the habit has no end. */
   duration: string;
+  /** A habit with no end: no programme, so nothing for the AI to write either. */
+  noEnd: boolean;
+  /** How often, how much, and when in the day. */
+  schedule: ScheduleDraft;
   habitType: HabitType;
 }
