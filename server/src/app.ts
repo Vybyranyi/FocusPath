@@ -6,6 +6,7 @@ import pinoHttp from "pino-http";
 import authRoutes from "@routes/authRoutes";
 import habitRoutes from "@routes/habitRouter";
 import healthRoutes from "@routes/healthRouter";
+import journalRoutes from "@routes/journalRouter";
 import planRoutes from "@routes/planRouter";
 import { corsOptions } from "@config/cors";
 import { logger } from "@config/logger";
@@ -73,6 +74,7 @@ app.use(apiLimiter);
 //Routes
 app.use("/auth", authRoutes);
 app.use("/habits", habitRoutes);
+app.use("/journal", journalRoutes);
 app.use("/plans", planRoutes);
 
 // After the routes, so a real endpoint always wins, and before notFoundHandler,
