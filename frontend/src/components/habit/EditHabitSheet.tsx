@@ -50,8 +50,8 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
   const [category, setCategory] = useState(habit.category ?? "");
   const [icon, setIcon] = useState(habit.icon);
   const [color, setColor] = useState(habit.color);
-  const [duration, setDuration] = useState(String(habit.duration));
-  const [dayTitle, setDayTitle] = useState(habit.dayInfo.dayTitle);
+  const [sessions, setSessions] = useState(String(habit.sessions ?? ""));
+  const [dayTitle, setDayTitle] = useState(habit.day.session?.title ?? "");
   const [steps, setSteps] = useState<StepDraft[]>(
     (habit.steps ?? []).map((step) => ({ _id: step._id, title: step.title })),
   );
@@ -60,7 +60,7 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
 
   const trimmedTitle = title.trim();
   const trimmedDayTitle = dayTitle.trim();
-  const parsedDuration = Number(duration);
+  const parsedSessions = Number(sessions);
 
   const titleProblem = !trimmedTitle
     ? "Required"
@@ -71,18 +71,20 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
     description.trim().length > DESCRIPTION_MAX
       ? `Must be ${DESCRIPTION_MAX} characters or fewer`
       : "";
-  const durationProblem =
-    !/^\d+$/.test(duration) || parsedDuration < 1 || parsedDuration > 365
-      ? "Must be a whole number of days, 1–365"
+  // Only a programme has a length to edit; a habit with no end is not given one.
+  const sessionsProblem =
+    habit.sessions !== undefined &&
+    (!/^\d+$/.test(sessions) || parsedSessions < 1 || parsedSessions > 365)
+      ? "Must be a whole number of sessions, 1–365"
       : "";
-  const dayTitleProblem = !trimmedDayTitle
+  const dayTitleProblem = habit.day.session && !trimmedDayTitle
     ? "Required"
     : trimmedDayTitle.length > DAY_TITLE_MAX
       ? `Must be ${DAY_TITLE_MAX} characters or fewer`
       : "";
 
   const invalid = Boolean(
-    titleProblem || descriptionProblem || durationProblem || dayTitleProblem || stepsProblem(steps),
+    titleProblem || descriptionProblem || sessionsProblem || dayTitleProblem || stepsProblem(steps),
   );
 
   // Blank rows are what "add step" leaves behind; they are not steps.
@@ -102,20 +104,24 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
   if (category !== (habit.category ?? "")) changes.category = category;
   if (icon !== habit.icon) changes.icon = icon;
   if (color !== habit.color) changes.color = color;
-  if (!durationProblem && parsedDuration !== habit.duration) changes.duration = parsedDuration;
+  if (habit.sessions !== undefined && !sessionsProblem && parsedSessions !== habit.sessions) {
+    changes.sessions = parsedSessions;
+  }
   if (stepsChanged) {
     // An existing step travels with its id, so renaming it keeps its ticks.
     changes.steps = cleanedSteps.map(({ _id, title: stepTitle }) => (_id ? { _id, title: stepTitle } : { title: stepTitle }));
   }
 
-  const renamesDay = trimmedDayTitle !== habit.dayInfo.dayTitle;
+  const renamesDay =
+    habit.day.session !== undefined && trimmedDayTitle !== habit.day.session.title;
   const hasChanges = Object.keys(changes).length > 0 || renamesDay;
 
-  const shortens = changes.duration !== undefined && changes.duration < habit.duration;
+  const shortens =
+    changes.sessions !== undefined && habit.sessions !== undefined && changes.sessions < habit.sessions;
   const leavesPlanScore =
-    Boolean(habit.fromPlanId) && (changes.duration !== undefined || renamesDay);
+    Boolean(habit.fromPlanId) && (changes.sessions !== undefined || renamesDay);
 
-  const dayLabel = format(fromDayKey(dayKeyOf(habit.dayInfo.date)), "EEEE, MMM d");
+  const dayLabel = format(fromDayKey(dayKeyOf(habit.day.date)), "EEEE, MMM d");
 
   const handleSave = async () => {
     if (invalid || !hasChanges) return;
@@ -129,9 +135,9 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
       // After the update, not beside it: a rename of the habit rewrites the
       // days still titled after it, and this day may be one of them. Sent
       // second, the user's own words for the day are what is left standing.
-      if (renamesDay) {
+      if (renamesDay && habit.day.session) {
         await dispatch(
-          renameHabitDay({ habitId: habit._id, date: habit.dayInfo.date, dayTitle: trimmedDayTitle }),
+          renameHabitDay({ habitId: habit._id, session: habit.day.session.index, title: trimmedDayTitle }),
         ).unwrap();
       }
       notify(`Saved “${trimmedTitle}”`);
@@ -168,14 +174,16 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
         error={descriptionProblem}
       />
 
-      <Input
-        label={`Task for ${dayLabel}`}
-        placeholder="What this day asks of you"
-        type="text"
-        value={dayTitle}
-        onChange={(event) => setDayTitle(event.target.value)}
-        error={dayTitleProblem}
-      />
+      {habit.day.session && (
+        <Input
+          label={`Task for ${dayLabel}`}
+          placeholder="What this session asks of you"
+          type="text"
+          value={dayTitle}
+          onChange={(event) => setDayTitle(event.target.value)}
+          error={dayTitleProblem}
+        />
+      )}
 
       <StepsEditor steps={steps} onChange={setSteps} />
 
@@ -183,25 +191,27 @@ export default function EditHabitSheet({ habit, open, onOpenChange }: IEditHabit
       <EmojiPicker value={icon} onChange={setIcon} />
       <ColorPicker value={color} onChange={setColor} />
 
-      <Input
-        label="Length in days"
-        placeholder={String(habit.duration)}
-        type="text"
-        value={duration}
-        onChange={(event) => setDuration(event.target.value)}
-        error={durationProblem}
-      />
+      {habit.sessions !== undefined && (
+        <Input
+          label="Length in sessions"
+          placeholder={String(habit.sessions)}
+          type="text"
+          value={sessions}
+          onChange={(event) => setSessions(event.target.value)}
+          error={sessionsProblem}
+        />
+      )}
 
       {shortens && (
         <p className="alternative text-warning">
-          Days past day {changes.duration} are removed, along with anything marked on them.
+          Sessions past number {changes.sessions} are removed from the programme.
         </p>
       )}
 
       {leavesPlanScore && (
         <p className="alternative text-warning">
           This habit came from the library. A different length or a rewritten
-          day makes it a different route, so it stops counting towards that
+          task makes it a different route, so it stops counting towards that
           plan’s score.
         </p>
       )}

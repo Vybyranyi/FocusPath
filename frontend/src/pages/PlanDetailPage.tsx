@@ -11,6 +11,7 @@ import { clearPlan, fetchPlan, reportPlan } from "@store/plansSlice";
 import { useToast } from "@hooks/useToast";
 import { categoryLabel, PLAN_CATEGORY_TINTS, isPlanCategory } from "@/lib/planCategories";
 import { languageLabel } from "@/lib/planLanguages";
+import { frequencyLabel, targetLabel } from "@/lib/schedule";
 import { cn } from "@/lib/utils";
 
 const REPORT_REASONS: ReadonlyArray<{ value: ReportReason; label: string }> = [
@@ -104,7 +105,11 @@ export default function PlanDetailPage() {
               {categoryLabel(plan.category)}
             </span>
             <span className="chip px-2 py-1 rounded-full leading-none bg-surface-2 text-ink-2">
-              {plan.duration} days
+              {plan.duration} sessions
+            </span>
+            <span className="chip px-2 py-1 rounded-full leading-none bg-surface-2 text-ink-2">
+              {frequencyLabel(plan.frequency)}
+              {plan.target ? ` · ${targetLabel(plan.target)}` : ""}
             </span>
             <span className="chip px-2 py-1 rounded-full leading-none bg-surface-2 text-ink-2">
               {plan.type === "build" ? "Build" : "Quit"}
@@ -154,7 +159,7 @@ export default function PlanDetailPage() {
         {plan.daysTruncated && (
           <div className="flex flex-col items-center text-center gap-3 p-6 rounded-2xl bg-accent-soft">
             <p className="body-bold text-ink">
-              {plan.duration - plan.days.length} more days are written and waiting
+              {plan.duration - plan.days.length} more sessions are written and waiting
             </p>
             <p className="alternative text-ink-2 max-w-80">
               Create an account to read the whole plan before you commit to it —

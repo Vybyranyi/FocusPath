@@ -1,7 +1,7 @@
 import { createSelector } from "@reduxjs/toolkit";
 import type { RootState } from "@store/store";
 import { getHabitProgress } from "@/lib/habitProgress";
-import { isDone } from "@/lib/habitStatus";
+import { isOff, isSettled } from "@/lib/habitStatus";
 
 export const selectAllHabits = (state: RootState) => state.habit.habits;
 export const selectHabitsForDate = (state: RootState) => state.habit.habitsForDate;
@@ -60,8 +60,12 @@ export interface DailyProgress {
 export const selectDailyProgress = createSelector(
     [selectHabitsForDate],
     (habits): DailyProgress => {
-        const total = habits.length;
-        const completed = habits.filter(habit => isDone(habit.dayInfo)).length;
+        // A paused habit or a rest day asks nothing today, so it is neither
+        // owed nor done: leaving it in would put a goal on the banner that no
+        // one can reach.
+        const asked = habits.filter(habit => !isOff(habit.day));
+        const total = asked.length;
+        const completed = asked.filter(habit => isSettled(habit.day)).length;
 
         return { total, completed, percentage: getHabitProgress(completed, total) };
     },

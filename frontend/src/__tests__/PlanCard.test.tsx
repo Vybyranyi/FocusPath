@@ -69,7 +69,23 @@ describe("PlanCard", () => {
     );
 
     expect(screen.getByText("Learning")).toBeInTheDocument();
-    expect(screen.getByText(/60 days/)).toBeInTheDocument();
+    expect(screen.getByText(/60 sessions/)).toBeInTheDocument();
     expect(screen.getByText(/Українська/)).toBeInTheDocument();
+  });
+
+  it("says how often the plan is walked", () => {
+    renderWithProviders(
+      <PlanCard plan={makePlanSummary({ frequency: { kind: "weekly", times: 3 } })} />,
+    );
+
+    expect(screen.getByText(/3× a week/)).toBeInTheDocument();
+  });
+
+  it("names the weekdays of a plan on chosen days", () => {
+    renderWithProviders(
+      <PlanCard plan={makePlanSummary({ frequency: { kind: "weekdays", days: [1, 3, 5] } })} />,
+    );
+
+    expect(screen.getByText(/Mon, Wed, Fri/)).toBeInTheDocument();
   });
 });

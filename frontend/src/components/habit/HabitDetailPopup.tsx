@@ -4,11 +4,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Emoji } from 'react-apple-emojis';
 import { useAppDispatch } from '@store/hooks';
 import { toggleHabitStep, deleteHabit } from '@store/habitSlice';
-import { getHabitProgress } from '@/lib/habitProgress';
-import { dayKeyOf, dayNumberOf, fromDayKey, relativeDayLabel, todayKey } from '@/lib/dates';
-import { isDone } from '@/lib/habitStatus';
+import { habitCompletion } from '@/lib/habitProgress';
+import { dayKeyOf, fromDayKey, relativeDayLabel, todayKey } from '@/lib/dates';
+import { isDone, isOff } from '@/lib/habitStatus';
 import type { HabitSummary } from '@shared/index';
-import { format, addDays } from 'date-fns';
+import { format } from 'date-fns';
 import Button from '@components/ui/Button';
 import PublishPlanSheet from '@components/explore/PublishPlanSheet';
 import EditHabitSheet from '@components/habit/EditHabitSheet';
@@ -119,16 +119,16 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
   // had any, on the grounds that they were "a finer measure of the same thing"
   // — but a day's checklist says nothing about how far through ninety days
   // someone is, and the number jumped between two meanings.
-  const progress = getHabitProgress(habit.completedCount, habit.duration);
+  const progress = habitCompletion(habit.progress);
 
   const steps = habit.steps ?? [];
-  const ticked = new Set(habit.dayInfo.completedSteps);
+  const ticked = new Set(habit.day.completedSteps);
   const tickedCount = steps.filter(step => ticked.has(step._id)).length;
   // Like marking the day itself, a checklist is not for a day that has not come.
-  const isFutureDay = dayKeyOf(habit.dayInfo.date) > todayKey();
+  const isFutureDay = dayKeyOf(habit.day.date) > todayKey();
 
   const handleToggleStep = (stepId: string) => {
-    dispatch(toggleHabitStep({ habitId: habit._id, stepId, date: habit.dayInfo.date }));
+    dispatch(toggleHabitStep({ habitId: habit._id, stepId, date: habit.day.date }));
   };
 
   const handleDelete = () => {
@@ -137,20 +137,13 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
     onClose();
   };
 
-  const calculateDeadline = () => {
-    if (!habit.startDate || !habit.duration) return null;
-    try {
-        // Through the day key, so the deadline is counted from the day the
-        // schedule actually names rather than from whatever local day midnight
-        // UTC happens to fall on here.
-        const start = fromDayKey(dayKeyOf(habit.startDate));
-        return format(addDays(start, habit.duration - 1), 'MMM do, yyyy');
-    } catch {
-        return null;
-    }
-  };
-
-  const deadline = calculateDeadline();
+  // The projected last day, which the server moves with every pause. A habit
+  // with no end has none to show; one paused with no end has none to know.
+  const deadline = habit.endDate
+    ? format(fromDayKey(dayKeyOf(habit.endDate)), 'MMM do, yyyy')
+    : habit.sessions === undefined
+      ? 'No end'
+      : null;
 
   return (
     /*
@@ -261,7 +254,9 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                             <PencilIcon />
                             Edit habit
                          </button>
-                         {habit.publishedPlanId ? (
+                         {/* Only a programme can be published: a habit with no
+                             end has no tasks to hand to the library. */}
+                         {habit.sessions === undefined ? null : habit.publishedPlanId ? (
                            <button
                              type="button"
                              onClick={() => { setMenuOpen(false); onClose(); navigate(`/explore/${habit.publishedPlanId}`); }}
@@ -358,12 +353,12 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                 <div className="bg-canvas rounded-2xl p-5 flex flex-col justify-center items-center border border-line">
                     <p className="chip text-ink-muted mb-2">Current streak</p>
                     <p className="display-3 text-ink leading-none">{habit.currentStreak}</p>
-                    <p className="chip text-ink-muted mt-1">Days</p>
+                    <p className="chip text-ink-muted mt-1">{habit.streakUnit === 'week' ? 'Weeks' : 'Days'}</p>
                 </div>
                 <div
                     className={cn(
                       'rounded-2xl p-5 flex flex-col justify-center items-center border transition-colors',
-                      isDone(habit.dayInfo)
+                      isDone(habit.day)
                         ? 'bg-success-soft border-success/30'
                         : 'bg-canvas border-line',
                     )}
@@ -371,10 +366,10 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                     {/* The day on screen, which is only sometimes today: the
                         sheet opens from whichever day is selected, and this
                         tile said "Today" for all of them. */}
-                    <p className={cn('chip mb-2', isDone(habit.dayInfo) ? 'text-success' : 'text-ink-muted')}>
-                      {relativeDayLabel(dayKeyOf(habit.dayInfo.date))}
+                    <p className={cn('chip mb-2', isDone(habit.day) ? 'text-success' : 'text-ink-muted')}>
+                      {relativeDayLabel(dayKeyOf(habit.day.date))}
                     </p>
-                    {isDone(habit.dayInfo) ? (
+                    {isDone(habit.day) ? (
                          <span className="flex flex-col items-center gap-1 text-success">
                            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                              <polyline points="20 6 9 17 4 12" />
@@ -383,7 +378,9 @@ export default function HabitDetailPopup({ habit, onClose }: IHabitDetailPopupPr
                          </span>
                     ) : (
                         <p className="title text-ink-2 text-center leading-tight">
-                           {habit.dayInfo.dayTitle || `Day ${dayNumberOf(habit.startDate, habit.dayInfo.date)}`}
+                           {isOff(habit.day)
+                             ? (habit.day.state === 'paused' ? 'Paused' : 'Rest day')
+                             : habit.day.session?.title || habit.title}
                         </p>
                     )}
                 </div>

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen } from "@testing-library/react";
 import { format } from "date-fns";
-import type { DayStatus } from "@shared/index";
+import type { DayState } from "@shared/index";
 import HabitCard from "@components/habit/HabitCard";
 import { makeHabitSummary, renderWithProviders } from "../testUtils";
 
@@ -37,22 +37,58 @@ const daysFromToday = (days: number) => {
 const statusOf = (title: string) =>
   screen.getByText(title).closest("[data-status]")?.getAttribute("data-status");
 
-const renderDay = (offset: number, status: DayStatus = "pending") =>
+/**
+ * `missed` is the server's to say now — it is derived from the date there, in
+ * one place — so a day that slipped past is rendered by handing the card a day
+ * the server already called missed.
+ */
+const renderDay = (offset: number, state: DayState = "pending") =>
   renderWithProviders(
     <HabitCard
       habit={makeHabitSummary({
-        dayInfo: {
-          _id: "day-1",
-          dayTitle: "Read 10 pages",
+        day: {
           completedSteps: [],
           date: utcMidnightOf(daysFromToday(offset)),
-          status,
+          state,
+          session: { index: 1, total: 7, title: "Read 10 pages" },
         },
       })}
     />,
   );
 
 describe("HabitCard", () => {
+  describe("what the card says", () => {
+    it("names the task of the session the day carries", () => {
+      renderDay(0);
+
+      expect(screen.getByText("Read 10 pages")).toBeInTheDocument();
+    });
+
+    it("falls back to the habit's description when it has no programme", () => {
+      renderWithProviders(
+        <HabitCard
+          habit={makeHabitSummary({
+            description: "Ten pages",
+            sessions: undefined,
+            day: { completedSteps: [], date: utcMidnightOf(new Date()), state: "pending" },
+          })}
+        />,
+      );
+
+      expect(screen.getByText("Ten pages")).toBeInTheDocument();
+    });
+  });
+
+  describe("days the habit is not asked for", () => {
+    it.each([["paused", "Paused"], ["rest", "Rest day"]] as const)("says so on a %s day, and offers no marks", (state, word) => {
+      renderDay(0, state);
+
+      expect(screen.getByText(word)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Mark Read done" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Mark Read not done" })).not.toBeInTheDocument();
+    });
+  });
+
   describe("what a day looks like", () => {
     it("leaves today neutral while it is still unmarked", () => {
       renderDay(0);
@@ -72,7 +108,7 @@ describe("HabitCard", () => {
      * is missed — derived from the date, never stored.
      */
     it("shows a day that slipped past as missed, not failed", () => {
-      renderDay(-1);
+      renderDay(-1, "missed");
 
       expect(statusOf("Read")).toBe("missed");
     });
@@ -93,7 +129,7 @@ describe("HabitCard", () => {
     it("states the verdict in words, not only in colour", () => {
       // done / failed / missed used to differ by ring colour alone, and the
       // amber was 2:1 against white.
-      renderDay(-1);
+      renderDay(-1, "missed");
 
       expect(screen.getByText("Missed")).toBeInTheDocument();
     });
@@ -156,20 +192,20 @@ describe("HabitCard", () => {
      * accessors lands on the previous day everywhere west of Greenwich, which
      * rendered every unmarked habit as overdue a day early.
      */
-    it("classifies today the same way west of UTC", () => {
+    it("still offers today's marks west of UTC", () => {
       process.env.TZ = "America/New_York";
 
       renderDay(0);
 
-      expect(statusOf("Read")).toBe("pending");
+      expect(screen.getByRole("button", { name: "Mark Read done" })).toBeInTheDocument();
     });
 
-    it("still treats yesterday as passed west of UTC", () => {
+    it("still keeps a day that has not come closed west of UTC", () => {
       process.env.TZ = "America/New_York";
 
-      renderDay(-1);
+      renderDay(1);
 
-      expect(statusOf("Read")).toBe("missed");
+      expect(screen.queryByRole("button", { name: "Mark Read done" })).not.toBeInTheDocument();
     });
   });
 
@@ -179,7 +215,7 @@ describe("HabitCard", () => {
       "fetch",
       vi.fn().mockResolvedValue(
         new Response(
-          JSON.stringify({ success: false, error: { code: "BAD_REQUEST", message: "Date is outside habit duration" } }),
+          JSON.stringify({ success: false, error: { code: "BAD_REQUEST", message: "The habit is not scheduled on that date" } }),
           { status: 400, headers: { "Content-Type": "application/json" } },
         ),
       ),
@@ -189,6 +225,6 @@ describe("HabitCard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Mark Read done" }));
 
-    expect(await screen.findByText(/could not save “read” — date is outside habit duration/i)).toBeInTheDocument();
+    expect(await screen.findByText(/could not save “read” — the habit is not scheduled on that date/i)).toBeInTheDocument();
   });
 });

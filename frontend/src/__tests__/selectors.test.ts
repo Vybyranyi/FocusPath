@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Habit } from "@shared/index";
+import type { Habit, HabitSummary } from "@shared/index";
 import {
   selectBuildHabits,
   selectDailyProgress,
@@ -12,13 +12,19 @@ const makeHabit = (overrides: Partial<Habit> = {}): Habit => ({
   _id: "habit-1",
   title: "Read",
   startDate: "2025-01-06T00:00:00.000Z",
-  duration: 7,
   type: "build",
   color: "blue",
   icon: "books",
+  timeOfDay: "anytime",
+  rules: [{ effectiveFrom: "2025-01-06T00:00:00.000Z", frequency: { kind: "daily" } }],
+  frequency: { kind: "daily" },
+  sessions: 7,
+  pauses: [],
+  restDays: [],
   currentStreak: 0,
+  streakUnit: "day",
   isCompleted: false,
-  dailyCompletions: [],
+  progress: { done: 0, decided: 0, percentage: 0, sessionsTotal: 7 },
   createdAt: "2025-01-06T00:00:00.000Z",
   updatedAt: "2025-01-06T00:00:00.000Z",
   ...overrides,
@@ -36,15 +42,13 @@ const stateWith = (habit: Partial<RootState["habit"]>): RootState =>
     },
   }) as RootState;
 
-const day = (id: string, completed: boolean) =>
+const day = (id: string, completed: boolean, state?: HabitSummary["day"]["state"]) =>
   makeHabitSummary({
     _id: id,
-    dayInfo: {
-      _id: `${id}-day`,
-      dayTitle: "task",
+    day: {
       completedSteps: [],
       date: "2025-01-06T00:00:00.000Z",
-      status: completed ? "done" : "pending",
+      state: state ?? (completed ? "done" : "pending"),
     },
   });
 
@@ -96,6 +100,23 @@ describe("selectDailyProgress", () => {
       completed: 1,
       percentage: 33,
     });
+  });
+
+  it("leaves out a habit that is paused, or resting today", () => {
+    const state = stateWith({
+      habitsForDate: [day("a", true), day("b", false, "paused"), day("c", false, "rest")],
+    });
+
+    expect(selectDailyProgress(state)).toEqual({ total: 1, completed: 1, percentage: 100 });
+  });
+
+  it("counts a weekly habit whose week is met", () => {
+    const met = makeHabitSummary({
+      _id: "w",
+      day: { completedSteps: [], date: "2025-01-06T00:00:00.000Z", state: "pending", week: { done: 3, target: 3 } },
+    });
+
+    expect(selectDailyProgress(stateWith({ habitsForDate: [met, day("b", false)] })).completed).toBe(1);
   });
 
   it("reaches a hundred only when everything is done", () => {

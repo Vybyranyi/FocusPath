@@ -35,18 +35,18 @@ export default function TakePlanSheet({ plan, open, onOpenChange }: ITakePlanShe
   const error = useAppSelector((state) => state.plans.error);
 
   const [startDate, setStartDate] = useState<Date>(new Date());
-  const [duration, setDuration] = useState(String(plan.duration));
+  const [sessions, setSessions] = useState(String(plan.duration));
 
-  const parsedDuration = Number(duration);
-  const durationProblem =
-    !/^\d+$/.test(duration) || parsedDuration < 1 || parsedDuration > 365
-      ? "Must be a whole number of days, 1–365"
+  const parsedSessions = Number(sessions);
+  const sessionsProblem =
+    !/^\d+$/.test(sessions) || parsedSessions < 1 || parsedSessions > 365
+      ? "Must be a whole number of sessions, 1–365"
       : "";
 
-  const changesLength = !durationProblem && parsedDuration !== plan.duration;
+  const changesLength = !sessionsProblem && parsedSessions !== plan.duration;
 
   const handleTake = async () => {
-    if (durationProblem) return;
+    if (sessionsProblem) return;
 
     try {
       await dispatch(
@@ -55,7 +55,7 @@ export default function TakePlanSheet({ plan, open, onOpenChange }: ITakePlanShe
           // The picker hands back local midnight; as a full instant that is the
           // previous day east of Greenwich. It travels as a day key instead.
           startDate: toDayKey(startDate),
-          duration: parsedDuration,
+          sessions: parsedSessions,
         }),
       ).unwrap();
 
@@ -82,12 +82,12 @@ export default function TakePlanSheet({ plan, open, onOpenChange }: ITakePlanShe
       />
 
       <Input
-        label="Length in days"
+        label="Length in sessions"
         placeholder={String(plan.duration)}
         type="text"
-        value={duration}
-        onChange={(event) => setDuration(event.target.value)}
-        error={durationProblem}
+        value={sessions}
+        onChange={(event) => setSessions(event.target.value)}
+        error={sessionsProblem}
       />
 
       {changesLength && (
@@ -115,7 +115,7 @@ export default function TakePlanSheet({ plan, open, onOpenChange }: ITakePlanShe
         <Button
           type="primary"
           size="medium"
-          disabled={taking || Boolean(durationProblem)}
+          disabled={taking || Boolean(sessionsProblem)}
           onClick={handleTake}
         >
           {taking ? "Adding…" : "Add to my habits"}

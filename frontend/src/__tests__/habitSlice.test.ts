@@ -1,14 +1,20 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  addPause,
+  addRestDay,
   createAIHabit,
   createHabit,
+  endPause,
   getHabitsForDate,
   markHabitCompletion,
+  removePause,
+  removeRestDay,
   renameHabitDay,
+  setHabitValue,
   toggleHabitStep,
   updateHabit,
 } from "@store/habitSlice";
-import type { Habit } from "@shared/index";
+import type { Habit, HabitDay } from "@shared/index";
 import { publishPlan, unpublishPlan } from "@store/plansSlice";
 import { makeStore } from "@store/store";
 import type { CreateHabitFormValues } from "@/types/forms";
@@ -51,6 +57,37 @@ const formValues = (overrides: Partial<CreateHabitFormValues> = {}): CreateHabit
   ...overrides,
 });
 
+/** The full habit the server answers with, in the shape habit model 2.0 returns. */
+const fullHabit = (overrides: Partial<Habit> = {}): Habit => ({
+  _id: "habit-1",
+  title: "Read",
+  startDate: "2025-01-06T00:00:00.000Z",
+  type: "build",
+  color: "blue",
+  icon: "books",
+  timeOfDay: "anytime",
+  rules: [{ effectiveFrom: "2025-01-06T00:00:00.000Z", frequency: { kind: "daily" } }],
+  frequency: { kind: "daily" },
+  sessions: 3,
+  pauses: [],
+  restDays: [],
+  currentStreak: 0,
+  streakUnit: "day",
+  isCompleted: false,
+  progress: { done: 2, decided: 2, percentage: 100, sessionsTotal: 3 },
+  createdAt: "2025-01-01T00:00:00.000Z",
+  updatedAt: "2025-01-01T00:00:00.000Z",
+  ...overrides,
+});
+
+const dayOf = (overrides: Partial<HabitDay> = {}): HabitDay => ({
+  date: "2025-01-07T00:00:00.000Z",
+  state: "done",
+  completedSteps: [],
+  session: { index: 2, total: 3, title: "Read" },
+  ...overrides,
+});
+
 describe("habitSlice", () => {
   describe("the day a request names", () => {
     it("asks for the day it was given, unaltered", async () => {
@@ -59,6 +96,15 @@ describe("habitSlice", () => {
       await makeStore().dispatch(getHabitsForDate("2026-08-07"));
 
       expect(urlAt(0)).toContain("date=2026-08-07");
+    });
+
+    /** The server reads days in UTC; the client says which day it is actually on. */
+    it("tells the server which day the client is on", async () => {
+      fetchMock.mockResolvedValue(ok({ date: "", habits: [] }));
+
+      await makeStore().dispatch(getHabitsForDate("2026-08-07"));
+
+      expect(urlAt(0)).toMatch(/today=\d{4}-\d{2}-\d{2}/);
     });
 
     /**
@@ -84,7 +130,7 @@ describe("habitSlice", () => {
 
     /** Dates from the server are already canonical; they travel back as-is. */
     it("marks the day the server named, not a re-encoding of it", async () => {
-      fetchMock.mockResolvedValue(ok({ habit: { currentStreak: 1, isCompleted: false } }));
+      fetchMock.mockResolvedValue(ok({ habit: fullHabit(), day: dayOf() }));
 
       await makeStore().dispatch(
         markHabitCompletion({
@@ -95,89 +141,91 @@ describe("habitSlice", () => {
       );
 
       expect(bodyAt(0).date).toBe("2026-08-07");
+      expect(bodyAt(0).today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     });
   });
 
   describe("marking a day", () => {
-    it("carries the server's recomputed progress into the day view", async () => {
+    /**
+     * The server is the one that knows what a mark did: whether the day is done,
+     * whether a week was just met, what the streak is. Its answer replaces the
+     * copy instead of the client guessing at "done".
+     */
+    it("takes the day and the progress from the server's answer", async () => {
       fetchMock.mockResolvedValue(
-        ok({ habit: { currentStreak: 3, isCompleted: false } }),
-      );
-
-      const store = makeStore(
-        habitState({ habitsForDate: [makeHabitSummary({ completedCount: 2 })] }),
-      );
-
-      await store.dispatch(
-        markHabitCompletion({
-          habitId: "habit-1",
-          date: "2026-08-07T00:00:00.000Z",
-          status: "done",
+        ok({
+          habit: fullHabit({ currentStreak: 3, progress: { done: 3, decided: 3, percentage: 100, sessionsTotal: 7 } }),
+          day: dayOf({ date: "2026-08-07T00:00:00.000Z", state: "done" }),
         }),
-      );
-
-      const [habit] = store.getState().habit.habitsForDate;
-      expect(habit.dayInfo.status).toBe("done");
-      expect(habit.completedCount).toBe(3);
-      expect(habit.currentStreak).toBe(3);
-    });
-
-    it("does not count the same day twice", async () => {
-      fetchMock.mockResolvedValue(
-        ok({ habit: { currentStreak: 1, isCompleted: false } }),
       );
 
       const store = makeStore(
         habitState({
           habitsForDate: [
-            makeHabitSummary({
-              completedCount: 2,
-              dayInfo: {
-                _id: "day-1",
-                dayTitle: "Read 10 pages",
-                completedSteps: [],
-                date: "2026-08-07T00:00:00.000Z",
-                status: "done",
-              },
-            }),
+            makeHabitSummary({ day: dayOf({ date: "2026-08-07T00:00:00.000Z", state: "pending" }) }),
           ],
         }),
       );
 
       await store.dispatch(
-        markHabitCompletion({
-          habitId: "habit-1",
-          date: "2026-08-07T00:00:00.000Z",
-          status: "done",
+        markHabitCompletion({ habitId: "habit-1", date: "2026-08-07T00:00:00.000Z", status: "done" }),
+      );
+
+      const [habit] = store.getState().habit.habitsForDate;
+      expect(habit.day.state).toBe("done");
+      expect(habit.progress.done).toBe(3);
+      expect(habit.currentStreak).toBe(3);
+    });
+
+    it("keeps the day on screen when the answer is about another day", async () => {
+      fetchMock.mockResolvedValue(
+        ok({ habit: fullHabit(), day: dayOf({ date: "2026-08-09T00:00:00.000Z", state: "done" }) }),
+      );
+      const store = makeStore(
+        habitState({
+          habitsForDate: [
+            makeHabitSummary({ day: dayOf({ date: "2026-08-07T00:00:00.000Z", state: "pending" }) }),
+          ],
         }),
       );
 
-      expect(store.getState().habit.habitsForDate[0].completedCount).toBe(2);
+      await store.dispatch(
+        markHabitCompletion({ habitId: "habit-1", date: "2026-08-09T00:00:00.000Z", status: "done" }),
+      );
+
+      expect(store.getState().habit.habitsForDate[0].day.state).toBe("pending");
+    });
+
+    it("updates the stats page's copy of the habit too", async () => {
+      fetchMock.mockResolvedValue(
+        ok({ habit: fullHabit({ currentStreak: 4 }), day: dayOf({ date: "2026-08-07T00:00:00.000Z" }) }),
+      );
+      const store = makeStore(habitState({ habits: [fullHabit({ currentStreak: 0 })] }));
+
+      await store.dispatch(
+        markHabitCompletion({ habitId: "habit-1", date: "2026-08-07T00:00:00.000Z", status: "done" }),
+      );
+
+      expect(store.getState().habit.habits[0].currentStreak).toBe(4);
+    });
+
+    it("sets a counted day through its own endpoint", async () => {
+      fetchMock.mockResolvedValue(
+        ok({ habit: fullHabit(), day: dayOf({ date: "2026-08-07T00:00:00.000Z", state: "pending", value: 5 }) }),
+      );
+      const store = makeStore(
+        habitState({ habitsForDate: [makeHabitSummary({ day: dayOf({ date: "2026-08-07T00:00:00.000Z", state: "pending" }) })] }),
+      );
+
+      await store.dispatch(setHabitValue({ habitId: "habit-1", date: "2026-08-07T00:00:00.000Z", value: 5 }));
+
+      expect(urlAt(0)).toContain("/habits/habit-1/value");
+      expect(bodyAt(0)).toMatchObject({ date: "2026-08-07", value: 5 });
+      expect(store.getState().habit.habitsForDate[0].day.value).toBe(5);
     });
   });
 
   describe("editing a habit", () => {
-    /** The full habit the server answers an edit with. */
-    const fullHabit = (overrides: Partial<Habit> = {}): Habit => ({
-      _id: "habit-1",
-      title: "Read",
-      startDate: "2025-01-06T00:00:00.000Z",
-      type: "build",
-      color: "blue",
-      icon: "books",
-      currentStreak: 0,
-      isCompleted: false,
-      duration: 3,
-      dailyCompletions: [
-        { _id: "d1", dayTitle: "Read", date: "2025-01-06T00:00:00.000Z", status: "done", completedSteps: [] },
-        { _id: "d2", dayTitle: "Read", date: "2025-01-07T00:00:00.000Z", status: "done", completedSteps: [] },
-        { _id: "d3", dayTitle: "Read", date: "2025-01-08T00:00:00.000Z", status: "pending", completedSteps: [] },
-      ],
-      createdAt: "2025-01-01T00:00:00.000Z",
-      updatedAt: "2025-01-01T00:00:00.000Z",
-      ...overrides,
-    });
-
     it("sends only the fields it was given", async () => {
       fetchMock.mockResolvedValue(ok({ habit: fullHabit() }));
 
@@ -190,52 +238,40 @@ describe("habitSlice", () => {
       expect(bodyAt(0)).toEqual({ title: "Read more" });
     });
 
-    it("rebuilds the selected day from the schedule the server returned", async () => {
+    it("sends a new rhythm, a goal, or the removal of one", async () => {
+      fetchMock.mockResolvedValue(ok({ habit: fullHabit() }));
+
+      await makeStore().dispatch(
+        updateHabit({
+          habitId: "habit-1",
+          changes: { frequency: { kind: "weekly", times: 3 }, target: null, timeOfDay: "evening", sessions: 20 },
+        }),
+      );
+
+      expect(bodyAt(0)).toEqual({
+        frequency: { kind: "weekly", times: 3 },
+        target: null,
+        timeOfDay: "evening",
+        sessions: 20,
+      });
+    });
+
+    it("keeps the day on screen and replaces the habit around it", async () => {
       const store = makeStore(
         habitState({
-          habitsForDate: [
-            makeHabitSummary({
-              dayInfo: { _id: "d2", dayTitle: "Read", date: "2025-01-07T00:00:00.000Z", status: "done", completedSteps: [] },
-            }),
-          ],
+          habitsForDate: [makeHabitSummary({ day: dayOf({ state: "done" }) })],
           habits: [fullHabit()],
         }),
       );
-      fetchMock.mockResolvedValue(
-        ok({
-          habit: fullHabit({
-            title: "Read more",
-            dailyCompletions: fullHabit().dailyCompletions.map((day) => ({ ...day, dayTitle: "Read more" })),
-          }),
-        }),
-      );
+      fetchMock.mockResolvedValue(ok({ habit: fullHabit({ title: "Read more", currentStreak: 2 }) }));
 
       await store.dispatch(updateHabit({ habitId: "habit-1", changes: { title: "Read more" } }));
 
       const summary = store.getState().habit.habitsForDate[0];
       expect(summary.title).toBe("Read more");
-      expect(summary.dayInfo.dayTitle).toBe("Read more");
-      expect(summary.completedCount).toBe(2);
+      expect(summary.currentStreak).toBe(2);
+      expect(summary.day.state).toBe("done");
       expect(store.getState().habit.habits[0].title).toBe("Read more");
-    });
-
-    it("drops the habit from a day the new length no longer covers", async () => {
-      const store = makeStore(
-        habitState({
-          habitsForDate: [
-            makeHabitSummary({
-              dayInfo: { _id: "d3", dayTitle: "Read", date: "2025-01-08T00:00:00.000Z", status: "pending", completedSteps: [] },
-            }),
-          ],
-        }),
-      );
-      fetchMock.mockResolvedValue(
-        ok({ habit: fullHabit({ duration: 2, dailyCompletions: fullHabit().dailyCompletions.slice(0, 2) }) }),
-      );
-
-      await store.dispatch(updateHabit({ habitId: "habit-1", changes: { duration: 2 } }));
-
-      expect(store.getState().habit.habitsForDate).toHaveLength(0);
     });
 
     it("leaves the day view standing when an edit is refused", async () => {
@@ -253,33 +289,131 @@ describe("habitSlice", () => {
       expect(store.getState().habit.habitsForDate).toHaveLength(1);
     });
 
-    it("renames one day by its day key", async () => {
+    it("renames one session of the programme by its number", async () => {
       fetchMock.mockResolvedValue(ok({ habit: fullHabit() }));
 
       await makeStore().dispatch(
-        renameHabitDay({ habitId: "habit-1", date: "2025-01-07T00:00:00.000Z", dayTitle: "Twenty pages" }),
+        renameHabitDay({ habitId: "habit-1", session: 2, title: "Twenty pages" }),
       );
 
       expect(urlAt(0)).toContain("/habits/habit-1/day");
-      expect(bodyAt(0)).toEqual({ date: "2025-01-07", dayTitle: "Twenty pages" });
+      expect(bodyAt(0)).toEqual({ session: 2, title: "Twenty pages" });
     });
   });
 
-  describe("the length an AI habit asks for", () => {
+  describe("pauses and rest days", () => {
+    const dayAnswer = (habits: unknown[]) => ok({ date: "2026-08-07T00:00:00.000Z", habits });
+
+    /** The first call is the change; the second is the quiet refresh of the day. */
+    const answerChangeThenDay = (habit: Habit, habits: unknown[] = []) => {
+      fetchMock.mockResolvedValueOnce(ok({ habit })).mockResolvedValueOnce(dayAnswer(habits));
+    };
+
+    it("starts a pause with day keys, then fetches the day again", async () => {
+      answerChangeThenDay(fullHabit());
+
+      await makeStore().dispatch(
+        addPause({ habitId: "habit-1", day: "2026-08-07", from: "2026-08-08", to: "2026-08-10" }),
+      );
+
+      expect(urlAt(0)).toContain("/habits/habit-1/pauses");
+      expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("POST");
+      expect(bodyAt(0)).toEqual({ from: "2026-08-08", to: "2026-08-10" });
+      expect(urlAt(1)).toContain("/habits/daily?date=2026-08-07");
+    });
+
+    it("ends a pause on the day given", async () => {
+      answerChangeThenDay(fullHabit());
+
+      await makeStore().dispatch(endPause({ habitId: "habit-1", day: "2026-08-07", pauseId: "p1", to: "2026-08-06" }));
+
+      expect(urlAt(0)).toContain("/habits/habit-1/pauses/p1");
+      expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("PATCH");
+      expect(bodyAt(0)).toEqual({ to: "2026-08-06" });
+    });
+
+    it("removes a pause that has not begun", async () => {
+      answerChangeThenDay(fullHabit());
+
+      await makeStore().dispatch(removePause({ habitId: "habit-1", day: "2026-08-07", pauseId: "p1" }));
+
+      expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe("DELETE");
+    });
+
+    it("sets and takes back a rest day by its day key", async () => {
+      answerChangeThenDay(fullHabit());
+      answerChangeThenDay(fullHabit());
+      const store = makeStore();
+
+      await store.dispatch(addRestDay({ habitId: "habit-1", day: "2026-08-07", date: "2026-08-07" }));
+      await store.dispatch(removeRestDay({ habitId: "habit-1", day: "2026-08-07", date: "2026-08-07" }));
+
+      expect(urlAt(0)).toContain("/habits/habit-1/rest-days");
+      expect(bodyAt(0)).toEqual({ date: "2026-08-07" });
+      expect(urlAt(2)).toContain("/habits/habit-1/rest-days/2026-08-07");
+    });
+
+    it("shows the day as the server now describes it, without a loading flash", async () => {
+      const store = makeStore(
+        habitState({ habitsForDate: [makeHabitSummary({ day: dayOf({ date: "2026-08-07T00:00:00.000Z", state: "pending" }) })] }),
+      );
+      answerChangeThenDay(
+        fullHabit(),
+        [makeHabitSummary({ day: dayOf({ date: "2026-08-07T00:00:00.000Z", state: "paused" }) })],
+      );
+
+      const pending = store.dispatch(
+        addPause({ habitId: "habit-1", day: "2026-08-07", from: "2026-08-07" }),
+      );
+      expect(store.getState().habit.loading).toBe(false);
+      await pending;
+
+      expect(store.getState().habit.habitsForDate[0].day.state).toBe("paused");
+      expect(store.getState().habit.loading).toBe(false);
+    });
+
+    it("does not overwrite another day the user has moved to meanwhile", async () => {
+      const store = makeStore(
+        habitState({ habitsForDate: [makeHabitSummary({ day: dayOf({ date: "2026-08-09T00:00:00.000Z" }) })] }),
+      );
+      answerChangeThenDay(fullHabit(), [makeHabitSummary({ _id: "stale" })]);
+
+      await store.dispatch(addPause({ habitId: "habit-1", day: "2026-08-07", from: "2026-08-08" }));
+
+      expect(store.getState().habit.habitsForDate.map((h) => h._id)).toEqual(["habit-1"]);
+    });
+
+    it("hands the reason back when the server refuses", async () => {
+      fetchMock.mockResolvedValue(
+        new Response(
+          JSON.stringify({ success: false, error: { code: "BAD_REQUEST", message: "A pause cannot begin in the past" } }),
+          { status: 400, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+
+      const result = await makeStore().dispatch(
+        addPause({ habitId: "habit-1", day: "2026-08-07", from: "2026-08-01" }),
+      );
+
+      expect(result.payload).toBe("A pause cannot begin in the past");
+    });
+  });
+
+  describe("the number of sessions an AI habit asks for", () => {
     it("lets the AI choose when the switch says so", async () => {
       fetchMock.mockResolvedValue(ok({ habit: {} }));
 
       await makeStore().dispatch(createAIHabit(formValues({ autoDuration: true, duration: "" })));
 
-      expect(bodyAt(0).duration).toBeNull();
+      expect(bodyAt(0).sessions).toBeNull();
     });
 
-    it("asks for the days the user typed when it does not", async () => {
+    it("asks for the sessions the user typed when it does not", async () => {
       fetchMock.mockResolvedValue(ok({ habit: {} }));
 
       await makeStore().dispatch(createAIHabit(formValues({ autoDuration: false, duration: "30" })));
 
-      expect(bodyAt(0).duration).toBe(30);
+      expect(bodyAt(0).sessions).toBe(30);
     });
   });
 
@@ -303,14 +437,14 @@ describe("habitSlice", () => {
     });
 
     it("ticks a step on the day it names", async () => {
-      fetchMock.mockResolvedValue(ok({ stepId: "s1", completed: true, habit: {} }));
+      fetchMock.mockResolvedValue(ok({ stepId: "s1", completed: true, habit: fullHabit(), day: dayOf() }));
 
       await makeStore().dispatch(
         toggleHabitStep({ habitId: "habit-1", stepId: "s1", date: "2025-01-07T00:00:00.000Z" }),
       );
 
       expect(urlAt(0)).toContain("/habits/habit-1/steps/s1");
-      expect(bodyAt(0)).toEqual({ date: "2025-01-07" });
+      expect(bodyAt(0)).toMatchObject({ date: "2025-01-07" });
     });
 
     it("ticks straight away and takes it back if the server refuses", async () => {
@@ -323,7 +457,7 @@ describe("habitSlice", () => {
       const pending = store.dispatch(
         toggleHabitStep({ habitId: "habit-1", stepId: "s1", date: "2025-01-06T00:00:00.000Z" }),
       );
-      expect(store.getState().habit.habitsForDate[0].dayInfo.completedSteps).toEqual(["s1"]);
+      expect(store.getState().habit.habitsForDate[0].day.completedSteps).toEqual(["s1"]);
 
       refuse(
         new Response(JSON.stringify({ success: false, error: { code: "NOT_FOUND", message: "Step not found" } }), {
@@ -333,35 +467,27 @@ describe("habitSlice", () => {
       );
       await pending;
 
-      expect(store.getState().habit.habitsForDate[0].dayInfo.completedSteps).toEqual([]);
+      expect(store.getState().habit.habitsForDate[0].day.completedSteps).toEqual([]);
     });
 
     /** Ticking the last step can finish the day, which only the server knows. */
-    it("takes the day's status from the server's answer", async () => {
+    it("takes the day's state from the server's answer", async () => {
       const store = makeStore(
-        habitState({ habitsForDate: [makeHabitSummary({ steps: [{ _id: "s1", title: "Stretch" }] })] }),
+        habitState({
+          habitsForDate: [
+            makeHabitSummary({
+              steps: [{ _id: "s1", title: "Stretch" }],
+              day: dayOf({ date: "2025-01-06T00:00:00.000Z", state: "pending" }),
+            }),
+          ],
+        }),
       );
       fetchMock.mockResolvedValue(
         ok({
           stepId: "s1",
           completed: true,
-          habit: {
-            _id: "habit-1",
-            title: "Read",
-            startDate: "2025-01-06T00:00:00.000Z",
-            type: "build",
-            color: "blue",
-            icon: "books",
-            currentStreak: 1,
-            isCompleted: false,
-            duration: 7,
-            steps: [{ _id: "s1", title: "Stretch" }],
-            dailyCompletions: [
-              { _id: "day-1", dayTitle: "Read 10 pages", date: "2025-01-06T00:00:00.000Z", status: "done", completedSteps: ["s1"] },
-            ],
-            createdAt: "2025-01-01T00:00:00.000Z",
-            updatedAt: "2025-01-01T00:00:00.000Z",
-          },
+          habit: fullHabit({ currentStreak: 1, steps: [{ _id: "s1", title: "Stretch" }] }),
+          day: dayOf({ date: "2025-01-06T00:00:00.000Z", state: "done", completedSteps: ["s1"] }),
         }),
       );
 
@@ -370,9 +496,8 @@ describe("habitSlice", () => {
       );
 
       const summary = store.getState().habit.habitsForDate[0];
-      expect(summary.dayInfo.status).toBe("done");
+      expect(summary.day.state).toBe("done");
       expect(summary.currentStreak).toBe(1);
-      expect(summary.completedCount).toBe(1);
     });
   });
 

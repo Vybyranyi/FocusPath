@@ -1,5 +1,6 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
 import type {
+  Frequency,
   Habit,
   Plan,
   PlanCategory,
@@ -7,6 +8,7 @@ import type {
   PlanSection,
   PlanSummary,
   ReportReason,
+  Target,
 } from "@shared/index";
 import { apiRequest, errorMessage } from "@api/client";
 
@@ -143,7 +145,10 @@ export interface TakePlanArgs {
   planId: string;
   /** A day key, `YYYY-MM-DD` — never a full instant. */
   startDate: string;
-  duration?: number;
+  /** Length of the programme, in sessions. */
+  sessions?: number;
+  frequency?: Frequency;
+  target?: Target;
 }
 
 export const takePlan = createAsyncThunk(

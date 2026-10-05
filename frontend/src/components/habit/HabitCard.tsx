@@ -5,9 +5,9 @@ import type { DayStatus, HabitSummary } from '@shared/index';
 import { markHabitCompletion } from '@store/habitSlice';
 import { useAppDispatch } from '@store/hooks';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
-import { dayKeyOf, dayNumberOf, todayKey } from '@/lib/dates';
-import { dayState, type DayState } from '@/lib/habitStatus';
-import { getHabitProgress } from '@/lib/habitProgress';
+import { dayKeyOf, todayKey } from '@/lib/dates';
+import { isOff, type DayState } from '@/lib/habitStatus';
+import { habitCompletion } from '@/lib/habitProgress';
 import HabitDetailPopup from '@components/habit/HabitDetailPopup';
 import { cn } from '@/lib/utils';
 import { useToast } from '@hooks/useToast';
@@ -50,6 +50,10 @@ const STATE_STYLE: Record<DayState, { ring: string; badge: string; Icon: typeof 
   done:    { ring: 'ring-success', badge: 'bg-success-soft text-success', Icon: CheckIcon, word: 'Done' },
   failed:  { ring: 'ring-danger',  badge: 'bg-danger-soft text-danger',   Icon: CrossIcon, word: 'Not done' },
   missed:  { ring: 'ring-missed',  badge: 'bg-missed-soft text-missed',   Icon: ClockIcon, word: 'Missed' },
+  // Days the habit is deliberately not asked for. Neutral on purpose: neither
+  // a success nor a slip, and they must not read as either.
+  paused:  { ring: 'ring-line',    badge: 'bg-canvas text-ink-muted',     Icon: ClockIcon, word: 'Paused' },
+  rest:    { ring: 'ring-line',    badge: 'bg-canvas text-ink-muted',     Icon: ClockIcon, word: 'Rest day' },
   pending: null,
 };
 
@@ -61,26 +65,27 @@ function HabitCard({ habit }: IHabitCardProps) {
   const reduceMotion = useReducedMotion();
   const { notify } = useToast();
 
-  // Compared as day keys. `dayInfo.date` is midnight UTC, and reading it with
+  // Compared as day keys. `day.date` is midnight UTC, and reading it with
   // local getters put it on the previous day west of Greenwich — which showed
   // every unmarked habit as a failure a day early.
   const today    = todayKey();
-  const habitDay = dayKeyOf(habit.dayInfo.date);
+  const habitDay = dayKeyOf(habit.day.date);
   const isFuture = habitDay > today;
 
-  // Read straight from the store. This used to be local state kept in step by
-  // an effect, because the server could not represent "the user marked today
-  // failed" — so that verdict lived only in this component and died on the next
-  // refetch. The status enum holds it, and the copy here is gone with it.
-  const state = dayState(habit.dayInfo, today);
+  // The server says what the day is worth, `missed` included: it is derived
+  // from the date there, in one place, and this component no longer repeats the
+  // rule. It reads the state straight from the store — it used to be local
+  // state kept in step by an effect, which died on the next refetch.
+  const state = habit.day.state;
   const style = STATE_STYLE[state];
+  const off = isOff(habit.day);
 
-  const progress = getHabitProgress(habit.completedCount, habit.duration);
+  const progress = habitCompletion(habit.progress);
 
   const handleMark = useCallback((status: DayStatus) => {
     dispatch(markHabitCompletion({
       habitId: habit._id,
-      date: habit.dayInfo.date,
+      date: habit.day.date,
       status,
     }))
       .unwrap()
@@ -93,16 +98,16 @@ function HabitCard({ habit }: IHabitCardProps) {
           'danger',
         );
       });
-  }, [dispatch, habit._id, habit.dayInfo.date, habit.title, notify]);
+  }, [dispatch, habit._id, habit.day.date, habit.title, notify]);
 
   const handlers = useSwipeable({
     onSwiping: e => {
-      if (isFuture) return;
+      if (isFuture || off) return;
       setSwipeDelta(e.deltaX);
       if (Math.abs(e.deltaX) > 10) wasSwipedRef.current = true;
     },
     onSwiped: e => {
-      if (!isFuture) {
+      if (!isFuture && !off) {
         if (e.deltaX > 80)       handleMark('done');
         else if (e.deltaX < -80) handleMark('failed');
       }
@@ -126,7 +131,7 @@ function HabitCard({ habit }: IHabitCardProps) {
     <>
       <div className="relative overflow-hidden rounded-2xl bg-surface">
         {/* What the gesture will do, shown underneath the card as it moves. */}
-        {!isFuture && swipeDelta !== 0 && (
+        {!isFuture && !off && swipeDelta !== 0 && (
           <div
             aria-hidden
             className={cn(
@@ -164,7 +169,7 @@ function HabitCard({ habit }: IHabitCardProps) {
             <span className="min-w-0">
               <span className="body-bold block truncate">{habit.title}</span>
               <span className="alternative block text-ink-muted truncate">
-                {habit.dayInfo.dayTitle || `Day ${dayNumberOf(habit.startDate, habit.dayInfo.date)}`}
+                {habit.day.session?.title || habit.description || habit.title}
               </span>
             </span>
             {style && (
@@ -177,7 +182,7 @@ function HabitCard({ habit }: IHabitCardProps) {
           {/* These were `hidden lg:flex`, so below 1024px the only way to mark
               a habit was a swipe nobody had been told about — and there was no
               keyboard path at any width. */}
-          {!isFuture && (
+          {!isFuture && !off && (
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"

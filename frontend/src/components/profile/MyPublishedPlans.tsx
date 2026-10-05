@@ -74,7 +74,7 @@ export default function MyPublishedPlans() {
                   <span className="body-bold text-ink-2">{plan.title}</span>
                 )}
                 <span className="alternative text-ink-muted">
-                  {categoryLabel(plan.category)} · {plan.duration} days
+                  {categoryLabel(plan.category)} · {plan.duration} sessions
                 </span>
               </div>
 

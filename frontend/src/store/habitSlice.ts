@@ -1,5 +1,13 @@
 import { createAsyncThunk, createSlice } from "@reduxjs/toolkit";
-import type { DayStatus, Habit, HabitSummary } from "@shared/index";
+import type {
+  DayStatus,
+  Frequency,
+  Habit,
+  HabitDay,
+  HabitSummary,
+  Target,
+  TimeOfDay,
+} from "@shared/index";
 import type { CreateHabitFormValues, StepDraft } from "@/types/forms";
 import { apiRequest, errorMessage } from "@api/client";
 import { dayKeyOf, toDayKey, todayKey } from "@/lib/dates";
@@ -51,7 +59,9 @@ const toHabitBody = (values: CreateHabitFormValues, allowAutoDuration = false) =
   // previous day east of Greenwich, which either shifted the whole schedule or
   // got the habit refused for starting "in the past".
   startDate: values.startDate ? toDayKey(values.startDate) : todayKey(),
-  duration: allowAutoDuration && values.autoDuration ? null : Number(values.duration),
+  // Absent means "no end" on the manual route and "let the model choose" on the
+  // AI one, so the two are told apart by `null`, which only the AI route reads.
+  sessions: allowAutoDuration && values.autoDuration ? null : Number(values.duration),
   type: values.habitType,
   color: values.color,
   icon: values.emoji,
@@ -90,8 +100,11 @@ export const getHabitsForDate = createAsyncThunk(
   "habit/getHabitsForDate",
   async (day: string, { rejectWithValue }) => {
     try {
+      // The client's own today travels with the request: the server reads days
+      // in UTC, and without this a user west of Greenwich is told the day they
+      // are still living has been missed.
       return await apiRequest<{ date: string; habits: HabitSummary[] }>(
-        `/habits/daily?date=${day}`,
+        `/habits/daily?date=${day}&today=${todayKey()}`,
       );
     } catch (error) {
       return rejectWithValue(errorMessage(error));
@@ -110,6 +123,12 @@ export const getAllHabits = createAsyncThunk(
   },
 );
 
+/** What the mark endpoints answer: the habit, and the day that was just changed. */
+interface MarkResponse {
+  habit: Habit;
+  day: HabitDay;
+}
+
 export const markHabitCompletion = createAsyncThunk(
   "habit/markHabitCompletion",
   async (
@@ -117,16 +136,35 @@ export const markHabitCompletion = createAsyncThunk(
     { rejectWithValue },
   ) => {
     try {
-      const { habit } = await apiRequest<{ habit: Habit }>(
+      const { habit, day } = await apiRequest<MarkResponse>(
         `/habits/${habitId}/complete`,
         {
           // `date` is the day the server itself named, so it only needs
           // narrowing to a key — never a round trip through a local Date.
           method: "PATCH",
-          body: { date: dayKeyOf(date), status },
+          body: { date: dayKeyOf(date), status, today: todayKey() },
         },
       );
-      return { habitId, date, status, updatedHabit: habit };
+      return { habitId, habit, day };
+    } catch (error) {
+      return rejectWithValue(errorMessage(error));
+    }
+  },
+);
+
+/** Sets the quantity counted on one day of a habit that has a target. */
+export const setHabitValue = createAsyncThunk(
+  "habit/setHabitValue",
+  async (
+    { habitId, date, value }: { habitId: string; date: string; value: number },
+    { rejectWithValue },
+  ) => {
+    try {
+      const { habit, day } = await apiRequest<MarkResponse>(`/habits/${habitId}/value`, {
+        method: "PATCH",
+        body: { date: dayKeyOf(date), value, today: todayKey() },
+      });
+      return { habitId, habit, day };
     } catch (error) {
       return rejectWithValue(errorMessage(error));
     }
@@ -141,9 +179,9 @@ export const toggleHabitStep = createAsyncThunk(
     { rejectWithValue },
   ) => {
     try {
-      return await apiRequest<{ stepId: string; completed: boolean; habit: Habit }>(
+      return await apiRequest<{ stepId: string; completed: boolean } & MarkResponse>(
         `/habits/${habitId}/steps/${stepId}`,
-        { method: "PATCH", body: { date: dayKeyOf(date) } },
+        { method: "PATCH", body: { date: dayKeyOf(date), today: todayKey() } },
       );
     } catch (error) {
       return rejectWithValue(errorMessage(error));
@@ -158,7 +196,13 @@ export interface HabitChanges {
   category?: string;
   color?: string;
   icon?: string;
-  duration?: number;
+  /** Length of a programme, in sessions. */
+  sessions?: number;
+  /** A new frequency or target starts a rule today; the past keeps the one it ran under. */
+  frequency?: Frequency;
+  /** `null` takes the target away. */
+  target?: Target | null;
+  timeOfDay?: TimeOfDay;
   steps?: StepDraft[];
 }
 
@@ -179,22 +223,106 @@ export const updateHabit = createAsyncThunk(
   },
 );
 
-/** Rewrites the task of one day. `date` is a day the server named. */
+/** Rewrites the task of one session of a programme. */
 export const renameHabitDay = createAsyncThunk(
   "habit/renameHabitDay",
   async (
-    { habitId, date, dayTitle }: { habitId: string; date: string; dayTitle: string },
+    { habitId, session, title }: { habitId: string; session: number; title: string },
     { rejectWithValue },
   ) => {
     try {
       return await apiRequest<{ habit: Habit }>(`/habits/${habitId}/day`, {
         method: "PATCH",
-        body: { date: dayKeyOf(date), dayTitle },
+        body: { session, title },
       });
     } catch (error) {
       return rejectWithValue(errorMessage(error));
     }
   },
+);
+
+/**
+ * Fetches a day again without putting the list into its loading state. After a
+ * pause or a rest day the day on screen changes what it says, and a skeleton
+ * flashing in over it for a change the user just asked for reads as a crash.
+ */
+export const refreshDay = createAsyncThunk(
+  "habit/refreshDay",
+  async (day: string, { rejectWithValue }) => {
+    try {
+      return await apiRequest<{ date: string; habits: HabitSummary[] }>(
+        `/habits/daily?date=${day}&today=${todayKey()}`,
+      );
+    } catch (error) {
+      return rejectWithValue(errorMessage(error));
+    }
+  },
+);
+
+/**
+ * Pauses and rest days change which days a habit is asked on, and with them
+ * what the day on screen says. Each answers with the habit; the view is
+ * refreshed from the server rather than patched here, because the server alone
+ * knows what a paused day, a pushed-out end or a held streak looks like.
+ */
+const scheduleChange = <Arg extends { habitId: string; day: string }>(
+  type: string,
+  request: (arg: Arg) => { path: string; method: "POST" | "PATCH" | "DELETE"; body?: unknown },
+) =>
+  createAsyncThunk(type, async (arg: Arg, { dispatch, rejectWithValue }) => {
+    try {
+      const { path, method, body } = request(arg);
+      const { habit } = await apiRequest<{ habit: Habit }>(path, { method, body });
+      await dispatch(refreshDay(arg.day));
+      return { habit };
+    } catch (error) {
+      return rejectWithValue(errorMessage(error));
+    }
+  });
+
+/** Starts a pause. `from`/`to` are day keys; without `to` it is open. */
+export const addPause = scheduleChange(
+  "habit/addPause",
+  ({ habitId, from, to }: { habitId: string; day: string; from: string; to?: string }) => ({
+    path: `/habits/${habitId}/pauses`,
+    method: "POST",
+    body: { from, to },
+  }),
+);
+
+/** Ends a pause; resuming is `to` = yesterday. */
+export const endPause = scheduleChange(
+  "habit/endPause",
+  ({ habitId, pauseId, to }: { habitId: string; day: string; pauseId: string; to: string }) => ({
+    path: `/habits/${habitId}/pauses/${pauseId}`,
+    method: "PATCH",
+    body: { to },
+  }),
+);
+
+export const removePause = scheduleChange(
+  "habit/removePause",
+  ({ habitId, pauseId }: { habitId: string; day: string; pauseId: string }) => ({
+    path: `/habits/${habitId}/pauses/${pauseId}`,
+    method: "DELETE",
+  }),
+);
+
+export const addRestDay = scheduleChange(
+  "habit/addRestDay",
+  ({ habitId, date }: { habitId: string; day: string; date: string }) => ({
+    path: `/habits/${habitId}/rest-days`,
+    method: "POST",
+    body: { date },
+  }),
+);
+
+export const removeRestDay = scheduleChange(
+  "habit/removeRestDay",
+  ({ habitId, date }: { habitId: string; day: string; date: string }) => ({
+    path: `/habits/${habitId}/rest-days/${date}`,
+    method: "DELETE",
+  }),
 );
 
 export const deleteHabit = createAsyncThunk(
@@ -212,12 +340,11 @@ export const deleteHabit = createAsyncThunk(
 );
 
 /**
- * Folds a habit the server just returned in full back into both lists.
+ * Folds a habit the server just returned back into both lists.
  *
- * The day view holds a narrowed copy, so it is rebuilt from the full schedule
- * rather than patched field by field: an edit can rename the day, move its
- * status or — when the habit is shortened — take the selected day out of the
- * schedule altogether, in which case the habit leaves that day's list.
+ * The day view's copy is the same habit with one day attached, so the habit's
+ * own fields are replaced and the day it is showing is kept — an edit changes
+ * what a habit *is*, and the day only changes when something marks it.
  */
 const applyHabit = (state: IHabitSlice, habit: Habit) => {
   const fullIndex = state.habits.findIndex((h) => h._id === habit._id);
@@ -226,34 +353,18 @@ const applyHabit = (state: IHabitSlice, habit: Habit) => {
   const summaryIndex = state.habitsForDate.findIndex((h) => h._id === habit._id);
   if (summaryIndex === -1) return;
 
-  const summary = state.habitsForDate[summaryIndex];
-  const day = habit.dailyCompletions.find(
-    (entry) => dayKeyOf(entry.date) === dayKeyOf(summary.dayInfo.date),
-  );
-
-  if (!day) {
-    state.habitsForDate.splice(summaryIndex, 1);
-    return;
-  }
-
   state.habitsForDate[summaryIndex] = {
-    _id: habit._id,
-    title: habit.title,
-    description: habit.description,
-    category: habit.category,
-    steps: habit.steps,
-    startDate: habit.startDate,
-    duration: habit.duration,
-    type: habit.type,
-    color: habit.color,
-    icon: habit.icon,
-    currentStreak: habit.currentStreak,
-    isCompleted: habit.isCompleted,
-    fromPlanId: habit.fromPlanId,
-    publishedPlanId: habit.publishedPlanId,
-    dayInfo: day,
-    completedCount: habit.dailyCompletions.filter((entry) => entry.status === "done").length,
+    ...habit,
+    day: state.habitsForDate[summaryIndex].day,
   };
+};
+
+/** Puts a freshly computed day onto the day view's copy of the habit, if it is showing that day. */
+const applyDay = (state: IHabitSlice, habitId: string, day: HabitDay) => {
+  const summary = state.habitsForDate.find(
+    (h) => h._id === habitId && dayKeyOf(h.day.date) === dayKeyOf(day.date),
+  );
+  if (summary) summary.day = day;
 };
 
 const habitSlice = createSlice({
@@ -320,41 +431,30 @@ const habitSlice = createSlice({
         state.error = action.payload as string;
       });
 
-    builder.addCase(markHabitCompletion.fulfilled, (state, action) => {
-      const { habitId, date, status, updatedHabit } = action.payload;
+    // The server's answer is the whole truth about the day it changed — its
+    // state, its week, its streak — so it replaces the copy wholesale. A local
+    // guess at "done" cannot know that a habit counted by quantity, or one whose
+    // week was just met, comes out differently.
+    const applyMark = (
+      state: IHabitSlice,
+      payload: { habitId: string; habit: Habit; day: HabitDay },
+    ) => {
+      applyHabit(state, payload.habit);
+      applyDay(state, payload.habitId, payload.day);
+    };
 
-      const habit = state.habitsForDate.find((h) => h._id === habitId);
-      if (habit) {
-        const wasDone = habit.dayInfo.status === "done";
-        const isDone = status === "done";
-        habit.dayInfo.status = status;
-        habit.currentStreak = updatedHabit.currentStreak;
-        habit.isCompleted = updatedHabit.isCompleted;
-        // Adjusted locally rather than refetched, since the change is known.
-        if (isDone && !wasDone) habit.completedCount += 1;
-        if (!isDone && wasDone) habit.completedCount = Math.max(0, habit.completedCount - 1);
-      }
-
-      // The stats page reads `habits`, not `habitsForDate`. It used to survive
-      // on refetching everything when it mounts, which made it right by luck
-      // rather than because the store was consistent.
-      const full = state.habits.find((h) => h._id === habitId);
-      if (full) {
-        const day = full.dailyCompletions.find((entry) => dayKeyOf(entry.date) === dayKeyOf(date));
-        if (day) day.status = status;
-        full.currentStreak = updatedHabit.currentStreak;
-        full.isCompleted = updatedHabit.isCompleted;
-      }
-    });
+    builder
+      .addCase(markHabitCompletion.fulfilled, (state, action) => applyMark(state, action.payload))
+      .addCase(setHabitValue.fulfilled, (state, action) => applyMark(state, action.payload));
 
     /** Flips a step in the day view's copy of the day it was ticked on. */
     const flipStep = (state: IHabitSlice, arg: { habitId: string; stepId: string; date: string }) => {
       const habit = state.habitsForDate.find(
-        (h) => h._id === arg.habitId && dayKeyOf(h.dayInfo.date) === dayKeyOf(arg.date),
+        (h) => h._id === arg.habitId && dayKeyOf(h.day.date) === dayKeyOf(arg.date),
       );
       if (!habit) return;
-      const ticked = habit.dayInfo.completedSteps;
-      habit.dayInfo.completedSteps = ticked.includes(arg.stepId)
+      const ticked = habit.day.completedSteps;
+      habit.day.completedSteps = ticked.includes(arg.stepId)
         ? ticked.filter((id) => id !== arg.stepId)
         : [...ticked, arg.stepId];
     };
@@ -368,6 +468,7 @@ const habitSlice = createSlice({
       // step can also finish the day, which the guess knows nothing about.
       .addCase(toggleHabitStep.fulfilled, (state, action) => {
         applyHabit(state, action.payload.habit);
+        applyDay(state, action.payload.habit._id, action.payload.day);
       })
       .addCase(toggleHabitStep.rejected, (state, action) => {
         flipStep(state, action.meta.arg);
@@ -383,6 +484,20 @@ const habitSlice = createSlice({
       .addCase(renameHabitDay.fulfilled, (state, action) => {
         applyHabit(state, action.payload.habit);
       });
+
+    // Habit-level fields only: the day itself comes back through `refreshDay`.
+    for (const thunk of [addPause, endPause, removePause, addRestDay, removeRestDay]) {
+      builder.addCase(thunk.fulfilled, (state, action) => {
+        applyHabit(state, action.payload.habit);
+      });
+    }
+
+    builder.addCase(refreshDay.fulfilled, (state, action) => {
+      // Only if the screen is still on the day that was asked for.
+      const showing = state.habitsForDate[0];
+      if (showing && dayKeyOf(showing.day.date) !== dayKeyOf(action.payload.date)) return;
+      state.habitsForDate = action.payload.habits || [];
+    });
 
     // A published habit is published from here on. The sheet reads this to
     // offer the plan instead of a second publish the server would refuse.

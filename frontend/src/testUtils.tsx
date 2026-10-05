@@ -56,18 +56,27 @@ export const makeHabitSummary = (
   type: "build",
   color: "blue",
   icon: "books",
+  timeOfDay: "anytime",
+  rules: [
+    { effectiveFrom: "2025-01-06T00:00:00.000Z", frequency: { kind: "daily" } },
+  ],
+  frequency: { kind: "daily" },
+  sessions: 7,
+  pauses: [],
+  restDays: [],
   currentStreak: 0,
+  streakUnit: "day",
   isCompleted: false,
-  duration: 7,
-  completedCount: 0,
-  dayInfo: {
-    _id: "day-1",
-    dayTitle: "Read 10 pages",
-    completedSteps: [],
+  progress: { done: 0, decided: 0, percentage: 0, sessionsTotal: 7 },
+  createdAt: "2025-01-06T00:00:00.000Z",
+  updatedAt: "2025-01-06T00:00:00.000Z",
+  day: {
     // A string, as it arrives over JSON — the old fixture used a Date, which
     // no response has ever actually contained.
     date: "2025-01-06T00:00:00.000Z",
-    status: "pending",
+    state: "pending",
+    completedSteps: [],
+    session: { index: 1, total: 7, title: "Read 10 pages" },
   },
   ...overrides,
 });
@@ -83,6 +92,8 @@ export const makePlanSummary = (
   language: "en",
   type: "build",
   duration: 30,
+  frequency: { kind: "daily" },
+  timeOfDay: "anytime",
   color: "blue",
   icon: "books",
   author: {},

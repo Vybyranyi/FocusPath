@@ -20,12 +20,11 @@ const withSteps = (offset: number, completedSteps: string[] = []): HabitSummary 
       { _id: "s1", title: "Stretch" },
       { _id: "s2", title: "Drink water" },
     ],
-    dayInfo: {
-      _id: "day-1",
-      dayTitle: "Morning",
+    day: {
       date: dayFromToday(offset),
-      status: "pending",
+      state: "pending",
       completedSteps,
+      session: { index: 1, total: 7, title: "Morning" },
     },
   });
 
@@ -62,7 +61,7 @@ describe("HabitDetailPopup", () => {
 
       const [url, init] = fetchMock.mock.calls[0];
       expect(String(url)).toContain("/steps/s1");
-      expect(JSON.parse(String((init as RequestInit).body))).toEqual({ date: toDayKey(new Date()) });
+      expect(JSON.parse(String((init as RequestInit).body))).toMatchObject({ date: toDayKey(new Date()) });
     });
 
     it("does not let a day that has not come be ticked", () => {
@@ -74,9 +73,18 @@ describe("HabitDetailPopup", () => {
 
     /** It used to switch to the step ratio, which says nothing about the plan. */
     it("keeps the progress bar on the plan", () => {
-      open({ ...withSteps(0, ["s1", "s2"]), completedCount: 1, duration: 10 });
+      open({
+        ...withSteps(0, ["s1", "s2"]),
+        progress: { done: 1, decided: 1, percentage: 100, sessionsTotal: 10 },
+      });
 
       expect(screen.getByRole("progressbar", { name: /overall progress/i })).toHaveAttribute("aria-valuenow", "10");
+    });
+
+    it("counts a weekly habit's streak in weeks", () => {
+      open(makeHabitSummary({ currentStreak: 4, streakUnit: "week" }));
+
+      expect(screen.getByText("Weeks")).toBeInTheDocument();
     });
 
     it("shows the streak even when the habit has steps", () => {
@@ -94,6 +102,20 @@ describe("HabitDetailPopup", () => {
     expect(screen.getByRole("button", { name: /edit habit/i })).toBeInTheDocument();
   });
 
+  describe("the end of the habit", () => {
+    it("says the day a programme ends", () => {
+      open(makeHabitSummary({ endDate: "2025-03-15T00:00:00.000Z" }));
+
+      expect(screen.getByText("Mar 15th, 2025")).toBeInTheDocument();
+    });
+
+    it("says so when a habit has no end", () => {
+      open(makeHabitSummary({ sessions: undefined, endDate: undefined }));
+
+      expect(screen.getByText("No end")).toBeInTheDocument();
+    });
+  });
+
   describe("publishing", () => {
     it("offers to publish a habit that has not been", () => {
       open(withSteps(0));
@@ -101,6 +123,15 @@ describe("HabitDetailPopup", () => {
       fireEvent.click(screen.getByRole("button", { name: /habit options/i }));
 
       expect(screen.getByRole("button", { name: /publish as a plan/i })).toBeInTheDocument();
+    });
+
+    /** A habit with no end has no tasks to hand to the library. */
+    it("does not offer to publish a habit with no end", () => {
+      open(makeHabitSummary({ sessions: undefined }));
+
+      fireEvent.click(screen.getByRole("button", { name: /habit options/i }));
+
+      expect(screen.queryByRole("button", { name: /publish as a plan/i })).not.toBeInTheDocument();
     });
 
     /** The server refuses a second copy; offering one only to refuse it is worse. */
@@ -123,17 +154,24 @@ describe("HabitDetailPopup", () => {
       expect(screen.queryByText("Today")).not.toBeInTheDocument();
     });
 
-    /** It used the streak, which is 0 on a fresh habit and resets on a slip. */
-    it("falls back to the day's place in the plan, not the streak", () => {
+    /** A habit with no programme has no task to name, so it names itself — not the streak. */
+    it("falls back to the habit's own name when it has no programme", () => {
       open(
         makeHabitSummary({
-          startDate: dayFromToday(-11),
+          title: "Drink water",
+          sessions: undefined,
           currentStreak: 0,
-          dayInfo: { _id: "d", dayTitle: "", date: dayFromToday(0), status: "pending", completedSteps: [] },
+          day: { date: dayFromToday(0), state: "pending", completedSteps: [] },
         }),
       );
 
-      expect(screen.getByText("Day 12")).toBeInTheDocument();
+      expect(screen.getAllByText("Drink water").length).toBeGreaterThan(1);
+    });
+
+    it.each([["paused", "Paused"], ["rest", "Rest day"]] as const)("says a %s day is one", (state, word) => {
+      open(makeHabitSummary({ day: { date: dayFromToday(0), state, completedSteps: [] } }));
+
+      expect(screen.getByText(word)).toBeInTheDocument();
     });
   });
 

@@ -10,7 +10,7 @@ import { useToast } from "@hooks/useToast";
 import { isPlanCategory } from "@/lib/planCategories";
 
 export interface IPublishPlanSheetProps {
-  habit: Pick<HabitSummary, "_id" | "title" | "duration" | "category">;
+  habit: Pick<HabitSummary, "_id" | "title" | "sessions" | "category">;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   /** Called once the plan exists, so whatever opened this can close itself. */
@@ -77,7 +77,7 @@ export default function PublishPlanSheet({
       open={open}
       onOpenChange={onOpenChange}
       title="Publish as a plan"
-      description={`A copy of “${habit.title}” — all ${habit.duration} days — goes into the public library.`}
+      description={`A copy of “${habit.title}” — all ${habit.sessions} sessions — goes into the public library.`}
     >
       <CategoryPicker
         value={category}

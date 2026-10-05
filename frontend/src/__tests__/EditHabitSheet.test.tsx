@@ -15,20 +15,7 @@ const ok = (data: unknown) =>
 const bodyAt = (call: number) =>
   JSON.parse(String((fetchMock.mock.calls[call][1] as RequestInit).body));
 
-const serverHabit = {
-  _id: "habit-1",
-  title: "Read",
-  startDate: "2025-01-06T00:00:00.000Z",
-  type: "build",
-  color: "blue",
-  icon: "books",
-  currentStreak: 0,
-  isCompleted: false,
-  duration: 7,
-  dailyCompletions: [],
-  createdAt: "2025-01-01T00:00:00.000Z",
-  updatedAt: "2025-01-01T00:00:00.000Z",
-};
+const serverHabit = makeHabitSummary();
 
 const open = (habit: HabitSummary = makeHabitSummary()) => {
   const onOpenChange = vi.fn();
@@ -56,7 +43,15 @@ describe("EditHabitSheet", () => {
 
     expect(field(/habit name/i).value).toBe("Read");
     expect(field(/task for/i).value).toBe("Read 10 pages");
-    expect(field(/length in days/i).value).toBe("7");
+    expect(field(/length in sessions/i).value).toBe("7");
+  });
+
+  /** A habit with no end has no length to edit, and nothing to rename. */
+  it("offers no length and no task for a habit with no end", () => {
+    open(makeHabitSummary({ sessions: undefined, day: { date: "2025-01-06T00:00:00.000Z", state: "pending", completedSteps: [] } }));
+
+    expect(screen.queryByLabelText(/length in sessions/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/task for/i)).not.toBeInTheDocument();
   });
 
   it("has nothing to save until something changes", () => {
@@ -81,7 +76,7 @@ describe("EditHabitSheet", () => {
     expect(bodyAt(0)).toEqual({ title: "Read more" });
   });
 
-  it("renames the day through its own endpoint", async () => {
+  it("renames the session through its own endpoint", async () => {
     fetchMock.mockResolvedValue(ok({ habit: serverHabit }));
     open();
 
@@ -90,21 +85,21 @@ describe("EditHabitSheet", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(String(fetchMock.mock.calls[0][0])).toContain("/habits/habit-1/day");
-    expect(bodyAt(0)).toEqual({ date: "2025-01-06", dayTitle: "Twenty pages" });
+    expect(bodyAt(0)).toEqual({ session: 1, title: "Twenty pages" });
   });
 
   it("says what shortening costs", () => {
     open();
 
-    fireEvent.change(field(/length in days/i), { target: { value: "3" } });
+    fireEvent.change(field(/length in sessions/i), { target: { value: "3" } });
 
-    expect(screen.getByText(/days past day 3 are removed/i)).toBeInTheDocument();
+    expect(screen.getByText(/sessions past number 3 are removed/i)).toBeInTheDocument();
   });
 
   it("warns a habit from the library that a new length leaves the plan's score", () => {
     open(makeHabitSummary({ fromPlanId: "plan-1" }));
 
-    fireEvent.change(field(/length in days/i), { target: { value: "10" } });
+    fireEvent.change(field(/length in sessions/i), { target: { value: "10" } });
 
     expect(screen.getByText(/stops counting towards that plan/i)).toBeInTheDocument();
   });
@@ -112,7 +107,7 @@ describe("EditHabitSheet", () => {
   it("refuses a length outside 1–365", () => {
     open();
 
-    fireEvent.change(field(/length in days/i), { target: { value: "400" } });
+    fireEvent.change(field(/length in sessions/i), { target: { value: "400" } });
 
     expect(screen.getByText(/1–365/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();

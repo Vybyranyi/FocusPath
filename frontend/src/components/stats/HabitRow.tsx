@@ -1,7 +1,6 @@
 import { memo } from "react";
 import CircleLoader from "@components/habit/CircleLoader";
-import { getHabitProgress } from "@/lib/habitProgress";
-import { isDone } from "@/lib/habitStatus";
+import { habitCompletion } from "@/lib/habitProgress";
 import { Emoji } from "react-apple-emojis";
 import type { Habit } from "@shared/index";
 
@@ -16,8 +15,8 @@ interface HabitRowProps {
 }
 
 function HabitRow({ habit }: HabitRowProps) {
-  const completed = habit.dailyCompletions.filter(isDone).length;
-  const pct = getHabitProgress(completed, habit.dailyCompletions.length);
+  const { done, sessionsTotal } = habit.progress;
+  const pct = habitCompletion(habit.progress);
 
   return (
     <div
@@ -69,7 +68,7 @@ function HabitRow({ habit }: HabitRowProps) {
         </div>
         <div className="flex items-center justify-between">
           <p className="alternative text-ink-muted">
-            {completed} / {habit.duration} days
+            {sessionsTotal ? `${done} / ${sessionsTotal} sessions` : `${done} done`}
           </p>
           {habit.currentStreak > 0 && (
             <p className="alternative text-ink-2 font-bold inline-flex items-center gap-1">
